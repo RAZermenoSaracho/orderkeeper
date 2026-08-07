@@ -24,27 +24,40 @@ OrderKeeper solves this trustlessly: funds are custodied by a smart contract, ex
 
 Four components, each with a single responsibility (simple microservices over a monorepo):
 
+```mermaid
+flowchart TB
+    User(["User's Wallet"])
+    Frontend["frontend/<br/>React + Vite + wagmi"]
+    Contracts["contracts/<br/>Foundry — Sepolia"]
+    Indexer["order-indexer/<br/>Fastify REST API"]
+    History[("indexed order history<br/>SQLite/PostgreSQL")]
+    Keeper["keeper-bot/<br/>viem + operator key"]
+    Chainlink[("Chainlink<br/>Price Feed")]
+
+    User -- "signs tx" --> Frontend
+    Frontend == "createOrder() / cancelOrder()<br/>(write, signed by user)" ==> Contracts
+    Keeper == "executeOrder()<br/>(write, signed by keeper)" ==> Contracts
+    Frontend -. "GET /orders<br/>(read-only)" .-> Indexer
+    Contracts -- "emits events" --> Indexer
+    Indexer -- "persists" --> History
+    Chainlink -. "off-chain price monitoring" .-> Keeper
+    Contracts == "re-verifies price on-chain<br/>at execution (trust boundary)" ==> Chainlink
+
+    style Contracts fill:#2d2d2d,stroke:#666,color:#fff
+    style Chainlink fill:#375bd2,stroke:#375bd2,color:#fff
 ```
-User → frontend → createOrder() / cancelOrder() → contracts (Sepolia)
-                                                          │
-                                                    emits events
-                                                          ▼
-                                                   order-indexer (listens & stores)
-                                                          ▲
-                                                     queried by
-                                                          │
-Chainlink feed → keeper-bot (monitors price) → executeOrder() → contracts (Sepolia)
-```
+
+Thick arrows = on-chain writes into `contracts/` (or the contract's own on-chain re-check of Chainlink); dashed arrows = off-chain reads and monitoring, which never touch the write path.
 
 ### 1. `contracts/` — On-chain core
 Custodies order funds, verifies price conditions on-chain, executes swaps.
 - **Stack**: Foundry, OpenZeppelin (`IERC20`, `ReentrancyGuard`), Chainlink `AggregatorV3Interface`, Uniswap router interface
 - **Core logic**: `createOrder()`, `executeOrder()` (re-validates price on-chain before executing), `cancelOrder()`, keeper fee on successful execution
 
-### 2. `order-indexer/` — Event listener
-Listens for `OrderCreated` / `OrderExecuted` / `OrderCancelled` events and persists them so the frontend and keeper don't need to query the chain directly on every read.
-- **Stack**: Node.js, TypeScript, viem (`watchContractEvent` over WebSocket), SQLite/PostgreSQL
-- **Read-only**: never sends transactions, never holds a private key — smaller attack surface by design
+### 2. `order-indexer/` — Event listener + read API
+Listens for `OrderCreated` / `OrderExecuted` / `OrderCancelled` events, persists them, and exposes them over a REST API (e.g. `GET /orders`, `GET /orders/:id`) so the frontend and keeper don't need to query the chain directly on every read.
+- **Stack**: Node.js, TypeScript, Fastify (REST API), viem (`watchContractEvent` over WebSocket), SQLite/PostgreSQL
+- **Read-only**: never sends transactions, never holds a private key — smaller attack surface by design. It only serves reads of indexed history; it never sits in the write path — order creation and cancellation go directly from the frontend to the contract
 
 ### 3. `keeper-bot/` — Executor
 Monitors the Chainlink feed and calls `executeOrder()` when a pending order's condition is met.
@@ -52,7 +65,8 @@ Monitors the Chainlink feed and calls `executeOrder()` when a pending order's co
 
 ### 4. `frontend/` — User interface
 Wallet connection, order creation/cancellation, order history and status.
-- **Stack**: Next.js, viem, wagmi for wallet connection
+- **Stack**: React + Vite + TypeScript (pure SPA, no SSR), viem, wagmi for wallet connection
+- **Direct-to-contract writes**: order creation and cancellation are signed by the user's wallet and sent straight to the contract via wagmi/viem — the frontend talks to `order-indexer` only to read order history
 
 ---
 
