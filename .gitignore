@@ -1,0 +1,70 @@
+# ==============================
+# Environment & Secrets
+# ==============================
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ==============================
+# Foundry (contracts/)
+# ==============================
+contracts/cache/
+contracts/out/
+contracts/broadcast/
+!contracts/broadcast/**/dry-run/
+contracts/lib/
+contracts/.env
+
+# Foundry deployment artifacts (keep the top-level deployments/ record instead)
+contracts/cache_forge/
+
+# ==============================
+# Node.js / TypeScript (order-indexer/, keeper-bot/, frontend/)
+# ==============================
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# ==============================
+# Vite (frontend/)
+# ==============================
+frontend/dist/
+frontend/.vite/
+
+# ==============================
+# Database (order-indexer/)
+# ==============================
+*.sqlite
+*.sqlite3
+*.db
+order-indexer/prisma/*.db
+
+# ==============================
+# Editors / OS
+# ==============================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# ==============================
+# Coverage / Reports
+# ==============================
+coverage/
+lcov.info
+contracts/report/
+
+# ==============================
+# Misc
+# ==============================
+*.log
+.turbo/
