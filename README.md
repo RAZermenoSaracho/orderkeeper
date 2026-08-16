@@ -30,7 +30,7 @@ flowchart TB
     Frontend["frontend/<br/>React + Vite + wagmi"]
     Contracts["contracts/<br/>Foundry — Sepolia"]
     Indexer["order-indexer/<br/>Fastify REST API"]
-    History[("indexed order history<br/>SQLite/PostgreSQL")]
+    History[("indexed order history<br/>PostgreSQL + Prisma")]
     Keeper["keeper-bot/<br/>viem + operator key"]
     Chainlink[("Chainlink<br/>Price Feed")]
 
@@ -38,6 +38,7 @@ flowchart TB
     Frontend == "createOrder() / cancelOrder()<br/>(write, signed by user)" ==> Contracts
     Keeper == "executeOrder()<br/>(write, signed by keeper)" ==> Contracts
     Frontend -. "GET /orders<br/>(read-only)" .-> Indexer
+    Indexer -. "GET /orders<br/>(pending orders)" .-> Keeper
     Contracts -- "emits events" --> Indexer
     Indexer -- "persists" --> History
     Chainlink -. "off-chain price monitoring" .-> Keeper
@@ -51,16 +52,16 @@ Thick arrows = on-chain writes into `contracts/` (or the contract's own on-chain
 
 ### 1. `contracts/` — On-chain core
 Custodies order funds, verifies price conditions on-chain, executes swaps.
-- **Stack**: Foundry, OpenZeppelin (`IERC20`, `ReentrancyGuard`), Chainlink `AggregatorV3Interface`, Uniswap router interface
+- **Stack**: Foundry, OpenZeppelin (`IERC20`, `ReentrancyGuard`), Chainlink `AggregatorV3Interface`, Uniswap V2 router interface
 - **Core logic**: `createOrder()`, `executeOrder()` (re-validates price on-chain before executing), `cancelOrder()`, keeper fee on successful execution
 
 ### 2. `order-indexer/` — Event listener + read API
 Listens for `OrderCreated` / `OrderExecuted` / `OrderCancelled` events, persists them, and exposes them over a REST API (e.g. `GET /orders`, `GET /orders/:id`) so the frontend and keeper don't need to query the chain directly on every read.
-- **Stack**: Node.js, TypeScript, Fastify (REST API), viem (`watchContractEvent` over WebSocket), SQLite/PostgreSQL
+- **Stack**: Node.js, TypeScript, Fastify (REST API), viem (`watchContractEvent` over WebSocket), PostgreSQL + Prisma
 - **Read-only**: never sends transactions, never holds a private key — smaller attack surface by design. It only serves reads of indexed history; it never sits in the write path — order creation and cancellation go directly from the frontend to the contract
 
 ### 3. `keeper-bot/` — Executor
-Monitors the Chainlink feed and calls `executeOrder()` when a pending order's condition is met.
+Monitors the Chainlink feed and calls `executeOrder()` when a pending order's condition is met, reading pending orders from `order-indexer`'s REST API rather than the contract directly (see Design Decisions).
 - **Stack**: Node.js, TypeScript, viem — holds its own operator private key (separate from user funds) to sign and send execution transactions
 
 ### 4. `frontend/` — User interface
@@ -130,6 +131,14 @@ doesn't care who calls it, only that the price it independently re-checks
 against Chainlink is correct at call time. This door is intentionally left
 open, not closed.
 
+### `keeper-bot`'s order source: `order-indexer`, not direct contract reads
+
+`keeper-bot` reads pending orders from `order-indexer`'s REST API rather
+than querying the contract directly — faster reads, at the cost of
+`keeper-bot` now depending on the indexer staying online and in sync.
+Decided during scaffolding (2026-08-16); direct contract reads remain a
+fallback path if indexer freshness ever becomes a concern.
+
 ---
 
 ## Testing Plan
@@ -138,12 +147,6 @@ open, not closed.
 - **Fork tests** — against Sepolia state, using the real Chainlink feed and Uniswap router
 - **Fuzz tests** — price/amount boundaries around the execution condition
 - **Invariant tests** — contract balance always matches the sum of active order amounts (solvency)
-
----
-
-## Open Design Question
-
-Should the keeper bot read pending orders directly from the contract (slower, but no dependency) or from the `order-indexer` (faster, but adds a dependency that must stay in sync)? Leaning toward starting with the indexer for speed, with a fallback path to direct contract reads if indexer freshness becomes a concern — to be finalized during the build phase.
 
 ---
 
