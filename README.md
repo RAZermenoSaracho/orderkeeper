@@ -79,6 +79,59 @@ Wallet connection, order creation/cancellation, order history and status.
 
 ---
 
+## Design Decisions
+
+### Trigger vs. verification are separate concerns
+
+Two things are often conflated in "keeper bot" designs, and OrderKeeper
+deliberately keeps them separate:
+
+- **(a) Who monitors price and triggers execution** — an off-chain process
+  that watches the market and decides *when* to call `executeOrder()`.
+- **(b) Where the price is verified before funds move** — this is
+  non-negotiable and always happens on-chain, inside `executeOrder()`,
+  directly against Chainlink. See [Security Considerations](#security-considerations)
+  above for the full reasoning; in short, the keeper bot is trusted only as
+  a trigger, never as a price source, so nothing about (a) can ever weaken
+  (b).
+
+Because (b) is fixed, the only real design question is (a): *which*
+off-chain process gets to call `executeOrder()`.
+
+### Trigger choice: self-run `keeper-bot`, not Chainlink Automation
+
+For (a), OrderKeeper uses a self-run `keeper-bot` (`viem` + its own
+operator private key) rather than Chainlink Automation.
+
+This is a deliberate trade-off, not an oversight:
+
+- **What Chainlink Automation would have bought us**: it runs independently
+  of any machine Ricardo has to keep online, so uptime wouldn't depend on a
+  personal bot staying up.
+- **What it would have cost**: LINK funding to keep upkeeps running, and —
+  more importantly for this project — loss of direct visibility into
+  exactly how and when triggers fire, since that logic would live inside
+  Chainlink's infrastructure instead of in a bot Ricardo wrote and can
+  read end-to-end.
+- **Why self-run won anyway**: architectural transparency and consistency
+  with this project's simplicity preference (see `CLAUDE.md`'s
+  Conventions) outweighed production-grade uptime here. This mirrors the
+  same reasoning already applied to the time-check oracle pattern in the
+  Module 13 `RWAAssetToken` assignment — understanding every moving part
+  end-to-end matters more than uptime guarantees for a bootcamp capstone,
+  which is not a live production service.
+
+### This is a reversible choice
+
+Chainlink Automation remains a valid future upgrade path if uptime becomes
+a real concern post-MVP. Swapping the trigger source doesn't require
+redesigning `executeOrder()`'s on-chain verification logic — that logic
+doesn't care who calls it, only that the price it independently re-checks
+against Chainlink is correct at call time. This door is intentionally left
+open, not closed.
+
+---
+
 ## Testing Plan
 
 - **Unit tests** (Foundry) — order lifecycle: create, execute, cancel, unauthorized access, edge cases (zero amounts, expired orders)
