@@ -27,6 +27,27 @@ This file will be updated as each component comes online.
 
 ---
 
+## Agent Files
+
+Agent-specific configuration lives under `.claude/`:
+
+```
+.claude/
+├── settings.json          # baseline tool permissions, hook wiring
+├── settings.local.json    # personal overrides (gitignored)
+├── rules/                 # code-style.md, testing.md, api-conventions.md, security.md
+├── commands/               # /review, /fix-issue slash commands
+├── skills/deploy/          # deployment workflow (stub until contracts/ exists)
+├── agents/                 # code-reviewer, security-auditor sub-agents
+└── hooks/validate-bash.sh  # blocks staged hardcoded-secret patterns
+```
+
+`.claude/rules/security.md` holds the two non-negotiable rules (no
+hardcoded secrets, English-only) referenced from Conventions below.
+`CLAUDE.local.md` (gitignored, repo root) is for machine-specific notes.
+
+---
+
 ## Planned Structure
 
 ```
@@ -57,9 +78,8 @@ duplication over premature abstraction at this stage.
 
 ## Conventions
 
-- **All code, comments, NatSpec, and identifiers are written in English** —
-  no exceptions, regardless of the language used in conversation or commit
-  discussion.
+- **English-only and no hardcoded secrets are non-negotiable** — see
+  `.claude/rules/security.md` for both rules in full; not repeated here.
 - **NatSpec is mandatory** on every public/external function — `@notice`,
   `@dev`, `@param`, `@return` where applicable.
 - **Requirement/spec IDs**, if this project maps to a bootcamp assignment
