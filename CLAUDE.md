@@ -22,8 +22,10 @@ Full context: `README.md`.
 
 ## Status
 
-Early stage — architecture defined, no contracts or services implemented yet.
-This file will be updated as each component comes online.
+Scaffolding in place for all four services (`contracts/`, `order-indexer/`,
+`keeper-bot/`, `frontend/`) plus `deployments/` — directory structure,
+package manifests, and base configs only, no business logic yet. This file
+will be updated as each component comes online.
 
 ---
 
@@ -38,6 +40,7 @@ Agent-specific configuration lives under `.claude/`:
 ├── rules/                 # code-style.md, testing.md, api-conventions.md, security.md
 ├── commands/               # /review, /fix-issue slash commands
 ├── skills/deploy/          # deployment workflow (stub until contracts/ exists)
+├── skills/resolve-issues/  # works through ISSUES.md entries you select
 ├── agents/                 # code-reviewer, security-auditor sub-agents
 └── hooks/validate-bash.sh  # blocks staged hardcoded-secret patterns
 ```
@@ -69,8 +72,8 @@ duplication over premature abstraction at this stage.
 
 | Component | Stack |
 |---|---|
-| `contracts/` | Foundry, OpenZeppelin (`IERC20`, `ReentrancyGuard`), Chainlink `AggregatorV3Interface`, Uniswap router interface |
-| `order-indexer/` | Node.js, TypeScript, Fastify (REST API: `GET /orders`, `GET /orders/:id`), viem (`watchContractEvent`), SQLite/PostgreSQL |
+| `contracts/` | Foundry, OpenZeppelin (`IERC20`, `ReentrancyGuard`), Chainlink `AggregatorV3Interface`, Uniswap V2 router interface |
+| `order-indexer/` | Node.js, TypeScript, Fastify (REST API: `GET /orders`, `GET /orders/:id`), viem (`watchContractEvent`), PostgreSQL + Prisma |
 | `keeper-bot/` | Node.js, TypeScript, viem (own operator wallet, separate from user funds) |
 | `frontend/` | React, Vite, TypeScript (pure SPA, no SSR), viem, wagmi |
 
@@ -171,18 +174,24 @@ coverage with `forge coverage`.
 - **Reversible**: Chainlink Automation remains a valid post-MVP upgrade if
   uptime becomes a concern — swapping the trigger source doesn't require
   redesigning `executeOrder()`'s verification logic.
+- **`keeper-bot` reads pending orders from `order-indexer`'s REST API**,
+  not directly from the contract — faster reads, at the cost of depending
+  on the indexer staying online and in sync. Decided 2026-08-16 during
+  scaffolding.
+- **Uniswap V2**, not V3 — simpler router interface (no concentrated-
+  liquidity/tick math), matching this project's simplicity preference;
+  Sepolia has enough V2 liquidity for a capstone demo. Decided 2026-08-16.
+- **`order-indexer` uses PostgreSQL + Prisma**, not SQLite — Ricardo
+  already runs PostgreSQL locally, so SQLite's zero-setup advantage
+  doesn't apply, and this avoids a future migration if the project outlives
+  the bootcamp demo. Decided 2026-08-16.
 
 ---
 
 ## Open Design Questions
 
-- Should `keeper-bot` read pending orders directly from the contract (no
-  dependency, slower) or from `order-indexer` (faster, but must stay in
-  sync)? Currently leaning toward `order-indexer` first, with a fallback path
-  to direct contract reads if freshness becomes a concern.
-- Uniswap V2 vs V3 router — not yet decided.
-- `order-indexer` database: SQLite (simpler) vs PostgreSQL (more robust) —
-  not yet decided.
+None currently open — see Design Decisions above. New questions get added
+here as they come up.
 
 ---
 
@@ -196,4 +205,11 @@ Expected variables, to be finalized as each service is built:
 - `PRIVATE_KEY` — deployer key (`contracts/`) and operator key
   (`keeper-bot/`) — **never share the same key between services**
 - `CHAINLINK_ETH_USD_FEED` — Sepolia feed address
-- `UNISWAP_ROUTER_ADDRESS` — Sepolia router address
+- `UNISWAP_ROUTER_ADDRESS` — Sepolia V2 router address
+- `DATABASE_URL` — `order-indexer`'s PostgreSQL connection string (Prisma).
+  Local dev DB name: `orderkeeper_dev`.
+- `INDEXER_URL` — `keeper-bot`'s base URL for `order-indexer`'s REST API.
+
+`frontend/` needs `VITE_RPC_URL` and `VITE_CONTRACT_ADDRESS` as well —
+added during scaffolding, not yet reviewed as carefully as the rest of
+this list since wallet-connect/config work hasn't started.
