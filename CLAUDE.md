@@ -154,6 +154,26 @@ coverage with `forge coverage`.
 
 ---
 
+## Design Decisions
+
+- **Trigger vs. verification are separate concerns.** Who triggers
+  execution (off-chain) and where price is verified before funds move
+  (always on-chain, inside `executeOrder()`, against Chainlink) are
+  distinct — the latter is non-negotiable, see `README.md`'s Security
+  Considerations.
+- **Trigger choice: self-run `keeper-bot`, not Chainlink Automation.**
+  Automation would run more reliably without a personal bot needing to
+  stay online, at the cost of LINK funding and losing direct visibility
+  into how triggers fire. Self-run was chosen for architectural
+  transparency and this project's simplicity preference — same reasoning
+  as the Module 13 `RWAAssetToken` time-check oracle pattern. Full detail
+  and rationale: `README.md`'s "Design Decisions" section.
+- **Reversible**: Chainlink Automation remains a valid post-MVP upgrade if
+  uptime becomes a concern — swapping the trigger source doesn't require
+  redesigning `executeOrder()`'s verification logic.
+
+---
+
 ## Open Design Questions
 
 - Should `keeper-bot` read pending orders directly from the contract (no
