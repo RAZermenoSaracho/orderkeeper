@@ -118,10 +118,24 @@ type(scope): description
 | `revert` | reverting a previous commit |
 
 Common scopes so far: `contracts`, `order-indexer`, `keeper-bot`, `frontend`,
-`docs`, `gitignore`, `readme` — add to this list as new scopes appear rather
-than inventing new naming patterns ad hoc.
+`docs`, `gitignore`, `readme`, `claude-code` — add to this list as new
+scopes appear rather than inventing new naming patterns ad hoc.
 
 Example: `feat(contracts): add order execution with Chainlink verification`
+
+#### Atomic commits (standing rule)
+
+Commits are atomic: **one file, or one tightly-coupled change** (e.g. a
+`rules/` file plus the single cross-reference edit it requires elsewhere),
+**per commit**. Never bundle unrelated files into a single commit, even if
+they landed in the same session or task.
+
+Format: `action(scope): description`, where `action` is the Conventional
+Commits type from the table above and `scope` matches the component
+touched (e.g. `claude-code`, `gitignore`, `docs`).
+
+This applies every time, in every future session, without needing to be
+repeated.
 
 ---
 
