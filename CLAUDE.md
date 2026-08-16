@@ -118,8 +118,8 @@ type(scope): description
 | `revert` | reverting a previous commit |
 
 Common scopes so far: `contracts`, `order-indexer`, `keeper-bot`, `frontend`,
-`docs`, `gitignore`, `readme`, `claude-code` — add to this list as new
-scopes appear rather than inventing new naming patterns ad hoc.
+`docs`, `gitignore`, `readme`, `claude-code`, `issues`, `mcp` — add to this
+list as new scopes appear rather than inventing new naming patterns ad hoc.
 
 Example: `feat(contracts): add order execution with Chainlink verification`
 
