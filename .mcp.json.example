@@ -1,0 +1,30 @@
+// .mcp.json.example
+//
+// .mcp.json is currently an empty stub: { "mcpServers": {} }
+//
+// This file documents *intent*, not a working config — no server entries
+// have been decided on yet. Do not copy anything below into .mcp.json
+// without confirming the server is actually wanted first.
+//
+// Candidates that may be added here once decided:
+//   - "github"   → GitHub MCP server, for issue/PR-aware workflows once
+//                  this repo has a GitHub remote and it's worth wiring up.
+//   - a Foundry/on-chain MCP server, if one proves useful once
+//     contracts/ exists.
+//
+// Shape each entry would take (illustrative only — not a real config):
+// {
+//   "mcpServers": {
+//     "github": {
+//       "command": "npx",
+//       "args": ["-y", "@modelcontextprotocol/server-github"],
+//       "env": {
+//         "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+//       }
+//     }
+//   }
+// }
+//
+// Note: env values must always be references like ${VAR_NAME}, resolved
+// from the environment — never a literal token. See
+// .claude/rules/security.md, rule (a).
