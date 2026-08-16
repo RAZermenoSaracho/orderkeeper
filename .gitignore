@@ -8,6 +8,12 @@
 *.key
 
 # ==============================
+# Claude Code — machine-specific / personal
+# ==============================
+CLAUDE.local.md
+.claude/settings.local.json
+
+# ==============================
 # Foundry (contracts/)
 # ==============================
 contracts/cache/
