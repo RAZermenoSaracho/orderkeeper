@@ -1,0 +1,12 @@
+// Scaffolding only — no models yet. The Order model will be added once
+// the on-chain order struct (contracts/) is defined, so the indexed shape
+// matches the emitted events exactly rather than being guessed ahead of it.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
