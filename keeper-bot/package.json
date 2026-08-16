@@ -1,0 +1,20 @@
+{
+  "name": "keeper-bot",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Monitors the Chainlink price feed and triggers executeOrder() on OrderKeeper when a pending order's condition is met.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
