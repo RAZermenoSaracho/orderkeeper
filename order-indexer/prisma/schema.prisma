@@ -1,7 +1,3 @@
-// Scaffolding only — no models yet. The Order model will be added once
-// the on-chain order struct (contracts/) is defined, so the indexed shape
-// matches the emitted events exactly rather than being guessed ahead of it.
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -9,4 +5,68 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+/// Mirrors OrderKeeper.PriceCondition (contracts/src/OrderKeeper.sol).
+enum PriceCondition {
+  GreaterOrEqual
+  LessOrEqual
+}
+
+/// Mirrors OrderKeeper.OrderStatus (contracts/src/OrderKeeper.sol).
+enum OrderStatus {
+  Pending
+  Executed
+  Cancelled
+}
+
+/// Indexed OrderKeeper order, kept in sync with on-chain state via
+/// OrderCreated / OrderExecuted / OrderCancelled events.
+model Order {
+  /// On-chain order id (OrderKeeper.nextOrderId sequence) — used directly
+  /// as the primary key rather than introducing a separate synthetic one.
+  orderId Int @id
+
+  // --- Fields fixed at creation, from OrderCreated ---
+  owner String
+  asset String
+
+  condition PriceCondition
+
+  /// uint256 on-chain, normalized to PRICE_DECIMALS (18) — Decimal, not
+  /// Int/BigInt: 18-decimal wei-scale values routinely exceed Postgres
+  /// bigint's ~9.2e18 range.
+  targetPrice    Decimal
+  amount         Decimal
+  maxSlippageBps Int
+  expiry         DateTime
+
+  // --- Mutable lifecycle state ---
+  status OrderStatus @default(Pending)
+
+  createdAtBlock BigInt
+  createdAtTx    String
+
+  executedAtBlock BigInt?
+  executedAtTx    String?
+  executionPrice  Decimal?
+  keeperFee       Decimal?
+  amountOut       Decimal?
+
+  cancelledAtBlock BigInt?
+  cancelledAtTx    String?
+
+  // --- Indexer bookkeeping, distinct from on-chain timestamps ---
+  indexedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+/// Single-row checkpoint of the last block this indexer has fully
+/// processed, so a restart resumes from there rather than re-scanning from
+/// genesis or silently missing events emitted while it was down.
+model IndexerState {
+  id                 Int    @id @default(1)
+  lastProcessedBlock BigInt
 }
