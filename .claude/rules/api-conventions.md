@@ -1,60 +1,59 @@
 # API Conventions — `order-indexer`
 
-**DRAFT, confirm with Ricardo.** Nothing in this file has been implemented
-or agreed on yet — `order-indexer` doesn't exist as code. These are
-reasonable defaults to start a discussion, not decisions.
-
 ## Routes
 
-DRAFT, confirm with Ricardo — matches the two routes named in `CLAUDE.md`:
+Implemented:
 
 ```
-GET /orders          # list orders, optionally filtered
-GET /orders/:id       # single order by id
+GET /orders    # list orders, optional ?status=pending|executed|cancelled
 ```
 
-Open questions (DRAFT):
-- Query params for `GET /orders` — filter by owner address? by status
-  (pending/executed/cancelled)? pagination (`?limit=&cursor=`)?
-- Is `:id` the on-chain order id (uint), or an indexer-assigned id?
+`GET /orders/:id` and owner/pagination filtering are not implemented yet —
+`GET /orders` is scoped narrowly to what `keeper-bot` needs (see
+`.claude/skills/deploy/` era decisions and CLAUDE.md); the broader read
+surface waits for the frontend task that actually needs it. `:id` will be
+the on-chain order id (`uint256`, same as the `orderId` field already
+returned by `GET /orders`), not a separate indexer-assigned id, once added.
 
 ## Response shape
 
-DRAFT, confirm with Ricardo:
-
 ```json
 {
-  "data": { "...": "..." },
-  "meta": { "...": "..." }
+  "data": [ { "...": "..." } ],
+  "meta": { "count": 0 }
 }
 ```
 
-- Single-resource responses: `{ "data": { ...order } }`
-- List responses: `{ "data": [ ...orders ], "meta": { "count": 0 } }`
+- List responses: `{ "data": [ ...orders ], "meta": { "count": N } }`.
+  Single-resource responses (`GET /orders/:id`, not yet implemented) will
+  follow `{ "data": { ...order } }` when added.
 - Field naming: `camelCase` in JSON, matching TS conventions elsewhere in
   the stack.
+- `uint256`/`Decimal` on-chain values (`targetPrice`, `amount`,
+  `executionPrice`, `keeperFee`, `amountOut`) are serialized as **strings**,
+  not numbers — they routinely exceed JS's safe integer range. Block
+  numbers (`createdAtBlock`, etc.) are strings for the same reason.
+  `expiry` is an ISO 8601 string.
 
 ## Error format
-
-DRAFT, confirm with Ricardo:
 
 ```json
 {
   "error": {
-    "code": "ORDER_NOT_FOUND",
-    "message": "No order with id 123"
+    "code": "INVALID_STATUS",
+    "message": "status must be one of: pending, executed, cancelled"
   }
 }
 ```
 
-- HTTP status codes used conventionally (`404` for not found, `400` for bad
-  input, `500` for unexpected server errors).
+- HTTP status codes used conventionally (`400` for bad input; `404`/`500`
+  apply once routes that can hit them exist).
 - `code` is a stable, machine-readable string; `message` is human-readable
   and not relied upon by clients for logic.
 
 ## Not yet decided
 
-- Auth (if any) for read access — currently the plan is a fully public,
-  read-only API per `CLAUDE.md`, but this hasn't been explicitly confirmed.
+- Auth (if any) for read access — currently a fully public, read-only API
+  per `CLAUDE.md`, but this hasn't been explicitly confirmed.
 - Rate limiting.
 - Versioning strategy (`/v1/...` prefix vs none).
