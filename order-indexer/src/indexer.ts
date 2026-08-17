@@ -19,6 +19,18 @@ interface OrderKeeperLog {
 
 const CHECKPOINT_ID = 1;
 
+// eth_getLogs block-range limit per call, chunked to stay under it during
+// backfill. Discovered the hard way: Alchemy's free tier caps eth_getLogs
+// at a 10-block range — a single unchunked call across any gap wider than
+// that (e.g. after the indexer has been down for a while) fails outright.
+// Overridable via env for providers with a larger (or no) limit; 10 is the
+// safe default. Live watching (below) isn't affected in normal operation —
+// each poll only spans the tiny gap since the last poll — but if the
+// process stalls without restarting for long enough to reopen a similar
+// gap, that single poll could still hit the same limit; watchContractEvent
+// logs it via onError rather than crashing, and picks back up next poll.
+const GETLOGS_BLOCK_RANGE = BigInt(process.env.GETLOGS_BLOCK_RANGE ?? 10);
+
 /// Starts the indexer: backfills any blocks missed since the last
 /// checkpoint (or, on a truly fresh install with no checkpoint, starts
 /// from the current block — this does not retroactively backfill full
@@ -48,18 +60,26 @@ export async function startIndexer(orderKeeperAddress: Address): Promise<void> {
 }
 
 async function backfill(orderKeeperAddress: Address, fromBlock: bigint, toBlock: bigint): Promise<void> {
-  const logs = await publicClient.getLogs({
-    address: orderKeeperAddress,
-    events: orderKeeperEventsAbi,
-    fromBlock,
-    toBlock,
-  });
+  for (let chunkStart = fromBlock; chunkStart <= toBlock; chunkStart += GETLOGS_BLOCK_RANGE) {
+    const chunkEndCandidate = chunkStart + GETLOGS_BLOCK_RANGE - 1n;
+    const chunkEnd = chunkEndCandidate > toBlock ? toBlock : chunkEndCandidate;
 
-  for (const log of sortLogs(logs as unknown as OrderKeeperLog[])) {
-    await processLog(log);
+    const logs = await publicClient.getLogs({
+      address: orderKeeperAddress,
+      events: orderKeeperEventsAbi,
+      fromBlock: chunkStart,
+      toBlock: chunkEnd,
+    });
+
+    for (const log of sortLogs(logs as unknown as OrderKeeperLog[])) {
+      await processLog(log);
+    }
+
+    // Advanced per chunk, not just once at the end: if the process is
+    // interrupted mid-backfill, it resumes from the last completed chunk
+    // instead of redoing the whole gap.
+    await advanceCheckpoint(chunkEnd);
   }
-
-  await advanceCheckpoint(toBlock);
 }
 
 function sortLogs(logs: OrderKeeperLog[]): OrderKeeperLog[] {
