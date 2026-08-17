@@ -141,6 +141,36 @@ fallback path if indexer freshness ever becomes a concern.
 
 ---
 
+## On-Chain Activity
+
+Deployed contract addresses live in `deployments/sepolia.json`. The full
+create-to-execute loop has been run for real on Sepolia — not just in
+tests — with `order-indexer` and `keeper-bot` both running as long-lived
+services, mirroring how Module 13's `updatePrice()` was proven live rather
+than only unit-tested.
+
+**Verified end-to-end (2026-08-17)**: a 0.001 ETH order with a
+trivially-true condition (target price $1,000, live price ~$1,907) was
+created and executed in back-to-back blocks — `keeper-bot` caught it on
+its very first poll after `order-indexer` picked up the `OrderCreated`
+event.
+
+- **`createOrder()` tx**: [`0x71945d01dd3589745bc41113afc325d2b1fa67514379d9a0efa0ba4d52c3b2f7`](https://sepolia.etherscan.io/tx/0x71945d01dd3589745bc41113afc325d2b1fa67514379d9a0efa0ba4d52c3b2f7) — block `11509603`
+- **`executeOrder()` tx**: [`0x3686d6b77f04fb0fa09bf27878753efebe63972b53fb5a1ff81ba08638ae737f`](https://sepolia.etherscan.io/tx/0x3686d6b77f04fb0fa09bf27878753efebe63972b53fb5a1ff81ba08638ae737f) — block `11509604`, the very next block
+- **`executionPrice`**: `1907173604190000000000` (≈ $1,907.17, matching the
+  live oracle read used to size the order)
+- **`keeperFee`**: `5000000000000` (0.000005 ETH — 0.5% of the 0.001 ETH
+  order, per `KEEPER_FEE_BPS`)
+- **`amountOut`**: `1887231` (≈ 1.887231 DemoUSDC, 6 decimals)
+
+This run also caught a real process bug before it mattered:
+`keeper-bot`'s operator key had initially been reused from the
+`contracts/` deployer key, violating CLAUDE.md's "never share keys
+between services" rule. Caught and fixed by generating a fresh operator
+wallet (`0x9B7beaD9A83903387373EeaA241a9D82598022F3`) before this run.
+
+---
+
 ## Testing Plan
 
 - **Unit tests** (Foundry) — order lifecycle: create, execute, cancel, unauthorized access, edge cases (zero amounts, expired orders)
