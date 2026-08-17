@@ -1,17 +1,26 @@
 import Fastify from "fastify";
+import { loadDeployment } from "./deployment.js";
+import { startIndexer } from "./indexer.js";
+import { registerOrderRoutes } from "./routes/orders.js";
 
 const app = Fastify({ logger: true });
 
-// Placeholder health check only — order routes depend on the on-chain
-// order struct (contracts/) and the Prisma schema built on top of it,
-// both still to come.
 app.get("/health", async () => ({ status: "ok" }));
+
+registerOrderRoutes(app);
 
 const port = Number(process.env.PORT ?? 3001);
 
-app
-  .listen({ port, host: "0.0.0.0" })
-  .catch((err) => {
-    app.log.error(err);
-    process.exit(1);
-  });
+async function main(): Promise<void> {
+  const deployment = loadDeployment();
+
+  await startIndexer(deployment.OrderKeeper);
+  app.log.info(`Indexing OrderKeeper at ${deployment.OrderKeeper}`);
+
+  await app.listen({ port, host: "0.0.0.0" });
+}
+
+main().catch((err) => {
+  app.log.error(err);
+  process.exit(1);
+});
