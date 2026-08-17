@@ -107,13 +107,13 @@ operator private key) rather than Chainlink Automation.
 This is a deliberate trade-off, not an oversight:
 
 - **What Chainlink Automation would have bought us**: it runs independently
-  of any machine Ricardo has to keep online, so uptime wouldn't depend on a
+  of any machine I have to keep online, so uptime wouldn't depend on a
   personal bot staying up.
 - **What it would have cost**: LINK funding to keep upkeeps running, and —
   more importantly for this project — loss of direct visibility into
   exactly how and when triggers fire, since that logic would live inside
-  Chainlink's infrastructure instead of in a bot Ricardo wrote and can
-  read end-to-end.
+  Chainlink's infrastructure instead of in a bot I wrote and can read
+  end-to-end.
 - **Why self-run won anyway**: architectural transparency and consistency
   with this project's simplicity preference (see `CLAUDE.md`'s
   Conventions) outweighed production-grade uptime here. This mirrors the
@@ -168,6 +168,9 @@ This run also caught a real process bug before it mattered:
 `contracts/` deployer key, violating CLAUDE.md's "never share keys
 between services" rule. Caught and fixed by generating a fresh operator
 wallet (`0x9B7beaD9A83903387373EeaA241a9D82598022F3`) before this run.
+
+To reproduce this yourself, or re-verify after future changes, see
+[`RUNBOOK.md`](RUNBOOK.md)'s "End-to-end oracle loop verification" workflow.
 
 ---
 

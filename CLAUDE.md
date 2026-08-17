@@ -48,6 +48,10 @@ Agent-specific configuration lives under `.claude/`:
 `.claude/rules/security.md` holds the two non-negotiable rules (no
 hardcoded secrets, English-only) referenced from Conventions below.
 `CLAUDE.local.md` (gitignored, repo root) is for machine-specific notes.
+`RUNBOOK.md` (repo root) is a home for **manual** verification workflows
+Ricardo runs himself (e.g. against live Sepolia) — an agent should not
+execute any of them unprompted; several involve real Sepolia ETH and real
+transactions.
 
 ---
 
@@ -95,6 +99,15 @@ duplication over premature abstraction at this stage.
 - **Simplicity preference**: avoid over-engineering. Prefer the simplest
   design that satisfies the requirement over a more "impressive" but harder
   to test/maintain one.
+- **First-person authorial voice outside Claude-specific files**: in
+  `README.md` and other project content (excluding `CLAUDE.md`,
+  `CLAUDE.local.md`, and `.claude/`), write as Ricardo authoring the
+  document — "I decided," "I wrote," never "Ricardo decided," "Ricardo
+  wrote." Inside Claude-specific files, third-person references to
+  Ricardo by name remain correct (e.g. "Ricardo should verify this
+  manually" makes sense in an agent-facing instruction file; it wouldn't
+  in the README). `@author Ricardo` in Solidity NatSpec is a standard
+  convention, not narrative voice, and is exempt either way.
 
 ### Commit Convention
 
@@ -122,8 +135,8 @@ type(scope): description
 
 Common scopes so far: `contracts`, `order-indexer`, `keeper-bot`, `frontend`,
 `docs`, `gitignore`, `readme`, `claude-code`, `issues`, `mcp`,
-`deployments` — add to this list as new scopes appear rather than
-inventing new naming patterns ad hoc.
+`deployments`, `runbook` — add to this list as new scopes appear rather
+than inventing new naming patterns ad hoc.
 
 Example: `feat(contracts): add order execution with Chainlink verification`
 

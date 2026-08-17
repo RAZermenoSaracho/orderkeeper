@@ -22,9 +22,9 @@ when adding a new entry.
 README.md's "Design Decisions" section and CLAUDE.md's short cross-
 reference both cite "the Module 13 RWAAssetToken assignment" by name only,
 with no link — that module currently exists only in Metana's private
-bootcamp repo, not a public one. Once Ricardo publishes that module to his
-own GitHub, update both references to link directly to the relevant
-contract (the price staleness/decimal-normalization logic being reused for
+bootcamp repo, not a public one. Once I publish that module to my own
+GitHub, update both references to link directly to the relevant contract
+(the price staleness/decimal-normalization logic being reused for
 OrderKeeper's oracle verification) so the reasoning cited for the self-run
 keeper-bot decision is independently checkable.
 
