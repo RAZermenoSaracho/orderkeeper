@@ -1,15 +1,37 @@
-// Entry point placeholder — no monitoring/execution logic yet.
-//
-// Planned shape, per README.md's Architecture and Design Decisions:
-//   1. Poll the order-indexer REST API (INDEXER_URL) for pending orders.
-//   2. Watch the Chainlink feed (CHAINLINK_ETH_USD_FEED) via viem.
-//   3. When a pending order's condition is met, call executeOrder() using
-//      the operator key (PRIVATE_KEY) — the contract independently
-//      re-verifies the price on-chain before moving any funds, so this
-//      bot is trusted only as a trigger, never as a price source.
+import { loadDeployment } from "./deployment.js";
+import { runPollCycle } from "./keeper.js";
+import { operatorAccount } from "./chain.js";
+
+const POLL_INTERVAL_MS = 15_000;
+
+const indexerUrl = process.env.INDEXER_URL;
+if (!indexerUrl) {
+  throw new Error("INDEXER_URL is not set");
+}
 
 function main(): void {
-  console.log("keeper-bot: scaffold only, no logic implemented yet.");
+  const deployment = loadDeployment();
+
+  console.log(`[keeper-bot] Operator: ${operatorAccount.address}`);
+  console.log(`[keeper-bot] Watching OrderKeeper at ${deployment.OrderKeeper}`);
+  console.log(`[keeper-bot] Polling ${indexerUrl} every ${POLL_INTERVAL_MS / 1000}s`);
+
+  const interval = setInterval(() => {
+    runPollCycle(deployment.OrderKeeper, indexerUrl!).catch((error) => {
+      // runPollCycle already catches and logs everything it knows how to
+      // handle — anything reaching here is unexpected, but the loop must
+      // keep running regardless.
+      console.error("[keeper-bot] Unexpected error in poll cycle:", error);
+    });
+  }, POLL_INTERVAL_MS);
+
+  const shutdown = () => {
+    console.log("[keeper-bot] Shutting down.");
+    clearInterval(interval);
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
 
 main();
