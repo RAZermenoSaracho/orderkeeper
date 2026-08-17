@@ -205,7 +205,11 @@ Expected variables, to be finalized as each service is built:
   `keeper-bot`)
 - `PRIVATE_KEY` — deployer key (`contracts/`) and operator key
   (`keeper-bot/`) — **never share the same key between services**
-- `CHAINLINK_ETH_USD_FEED` — Sepolia feed address
+- `CHAINLINK_ETH_USD_FEED` — Sepolia feed address, used by `contracts/`'s
+  deploy script to register the feed. **Not** used by `keeper-bot` —
+  it calls `OrderKeeper.checkPriceCondition()` on-chain instead of reading
+  Chainlink directly, so the off-chain trigger can never drift from what
+  `executeOrder()` actually re-verifies.
 - `UNISWAP_ROUTER_ADDRESS` — Sepolia V2 router address
 - `DATABASE_URL` — `order-indexer`'s PostgreSQL connection string (Prisma).
   Local dev DB name: `orderkeeper_dev`.

@@ -39,9 +39,9 @@ flowchart TB
     Keeper == "executeOrder()<br/>(write, signed by keeper)" ==> Contracts
     Frontend -. "GET /orders<br/>(read-only)" .-> Indexer
     Indexer -. "GET /orders<br/>(pending orders)" .-> Keeper
+    Keeper -. "checkPriceCondition()<br/>(free eth_call)" .-> Contracts
     Contracts -- "emits events" --> Indexer
     Indexer -- "persists" --> History
-    Chainlink -. "off-chain price monitoring" .-> Keeper
     Contracts == "re-verifies price on-chain<br/>at execution (trust boundary)" ==> Chainlink
 
     style Contracts fill:#2d2d2d,stroke:#666,color:#fff
@@ -61,7 +61,7 @@ Listens for `OrderCreated` / `OrderExecuted` / `OrderCancelled` events, persists
 - **Read-only**: never sends transactions, never holds a private key — smaller attack surface by design. It only serves reads of indexed history; it never sits in the write path — order creation and cancellation go directly from the frontend to the contract
 
 ### 3. `keeper-bot/` — Executor
-Monitors the Chainlink feed and calls `executeOrder()` when a pending order's condition is met, reading pending orders from `order-indexer`'s REST API rather than the contract directly (see Design Decisions).
+Polls `order-indexer`'s REST API for pending orders (see Design Decisions), then re-checks each one's price condition via the contract's own `checkPriceCondition()` — a free `eth_call`, not an independent Chainlink read — before calling `executeOrder()`. This keeps the off-chain trigger logic from ever silently drifting apart from what `executeOrder()` itself re-verifies.
 - **Stack**: Node.js, TypeScript, viem — holds its own operator private key (separate from user funds) to sign and send execution transactions
 
 ### 4. `frontend/` — User interface
