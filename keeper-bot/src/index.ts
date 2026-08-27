@@ -9,7 +9,7 @@ if (!indexerUrl) {
   throw new Error("INDEXER_URL is not set");
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const deployment = loadDeployment();
 
   console.log(`[keeper-bot] Operator: ${operatorAccount.address}`);
@@ -34,4 +34,9 @@ function main(): void {
   process.on("SIGTERM", shutdown);
 }
 
-main();
+main().catch((error) => {
+  // Anything reaching here is a startup failure (e.g. loadDeployment()
+  // throwing) — matching order-indexer/src/index.ts's pattern.
+  console.error("[keeper-bot] Fatal error during startup:", error);
+  process.exit(1);
+});
