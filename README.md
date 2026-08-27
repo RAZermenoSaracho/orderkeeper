@@ -164,6 +164,33 @@ tests — with `order-indexer` and `keeper-bot` both running as long-lived
 services, mirroring how Module 13's `updatePrice()` was proven live rather
 than only unit-tested.
 
+### Current deployment (2026-08-26)
+
+Redeployed after the `order.asset`/swap-path fix (see Design Decisions
+below). Both contracts are verified on Sepolia Etherscan:
+
+- **OrderKeeper**: [`0x2d065b6a75A207e73Cc9f76953A5886B250336FD`](https://sepolia.etherscan.io/address/0x2d065b6a75A207e73Cc9f76953A5886B250336FD)
+- **DemoUSDC**: [`0xDB7B8e1c83b14e3E4585FFb2b03088c0520b0568`](https://sepolia.etherscan.io/address/0xDB7B8e1c83b14e3E4585FFb2b03088c0520b0568)
+
+Deployment transactions:
+
+- **DemoUSDC deploy**: [`0x19c34e68f47c86cf480bd12000a2b82a159478af7355a0ac9a2170a6b4a7656c`](https://sepolia.etherscan.io/tx/0x19c34e68f47c86cf480bd12000a2b82a159478af7355a0ac9a2170a6b4a7656c) — block `11574808`
+- **OrderKeeper deploy**: [`0xa1634f5ddfca5783c33ae02d54e367e28094126a54f1b947d405ac4cdf2e2d85`](https://sepolia.etherscan.io/tx/0xa1634f5ddfca5783c33ae02d54e367e28094126a54f1b947d405ac4cdf2e2d85) — block `11574809`
+- **`addPriceFeed()`**: [`0xceecfb0f5554a5b6c53d48a759e73010a788fe1a15d1f25833e7990d118e8d32`](https://sepolia.etherscan.io/tx/0xceecfb0f5554a5b6c53d48a759e73010a788fe1a15d1f25833e7990d118e8d32) — block `11574810`
+- **DemoUSDC `mint()`**: [`0x808c7d591f5917fdc50c7734090b4563d0566e6b8f9593028a133052e90c5c3b`](https://sepolia.etherscan.io/tx/0x808c7d591f5917fdc50c7734090b4563d0566e6b8f9593028a133052e90c5c3b) — block `11574811`
+- **DemoUSDC `approve()`**: [`0x59aab729eb9377450685de55327cb220da4763f6604837c1e1201de01a6dab75`](https://sepolia.etherscan.io/tx/0x59aab729eb9377450685de55327cb220da4763f6604837c1e1201de01a6dab75) — block `11574813`
+- **`addLiquidityETH()`**: [`0xe673a4ed91c08edac68e56ce1bc7a0a3d69b9e5c207adc746450e48d483070a1`](https://sepolia.etherscan.io/tx/0xe673a4ed91c08edac68e56ce1bc7a0a3d69b9e5c207adc746450e48d483070a1) — block `11574814`
+
+All six transactions confirmed successfully. Full detail in
+`contracts/broadcast/DeployOrderKeeper.s.sol/11155111/run-latest.json`.
+
+### Historical: first verified end-to-end run (2026-08-17)
+
+**Superseded** — this run was against the previous contract deployment,
+before the `order.asset`/swap-path fix (see Design Decisions below).
+Kept here as a historical record rather than deleted; it does not
+describe the current deployment above.
+
 **Verified end-to-end (2026-08-17)**: a 0.001 ETH order with a
 trivially-true condition (target price $1,000, live price ~$1,907) was
 created and executed in back-to-back blocks — `keeper-bot` caught it on
