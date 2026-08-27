@@ -102,14 +102,15 @@ async function processLog(log: OrderKeeperLog): Promise<void> {
         await handleOrderCancelled(log);
         break;
     }
-  } catch (error) {
-    // Logged, not thrown — one malformed/out-of-order log shouldn't take
-    // down the whole indexer loop.
-    console.error(`Failed to process ${log.eventName} at block ${log.blockNumber}, tx ${log.transactionHash}:`, error);
-    return;
-  }
 
-  await advanceCheckpoint(log.blockNumber);
+    await advanceCheckpoint(log.blockNumber);
+  } catch (error) {
+    // Logged, not thrown — one malformed/out-of-order log, or a transient
+    // DB failure on either the handler or the checkpoint update, shouldn't
+    // take down the whole indexer loop (and shouldn't surface as an
+    // unhandled promise rejection either).
+    console.error(`Failed to process ${log.eventName} at block ${log.blockNumber}, tx ${log.transactionHash}:`, error);
+  }
 }
 
 async function handleOrderCreated(log: OrderKeeperLog): Promise<void> {
