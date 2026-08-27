@@ -22,10 +22,24 @@ Full context: `README.md`.
 
 ## Status
 
-Scaffolding in place for all four services (`contracts/`, `order-indexer/`,
-`keeper-bot/`, `frontend/`) plus `deployments/` — directory structure,
-package manifests, and base configs only, no business logic yet. This file
-will be updated as each component comes online.
+`contracts/` has full business logic: `OrderKeeper.sol` (order lifecycle,
+Chainlink oracle verification, Uniswap V2 execution) and `DemoUSDC.sol` (a
+testnet-only quote token). 62 tests pass by default (`forge test`; the
+fork suite self-skips without `RPC_URL` — all 66 pass with
+`--fork-url sepolia`), covering unit, fork, fuzz, and invariant categories.
+Both contracts are at 100% coverage and `slither`-clean — findings against
+`src/` are triaged (fixed if real, suppressed with a documented rationale
+if accepted by design; see Conventions). Deployed and verified end-to-end
+on Sepolia — see README.md's On-Chain Activity section.
+
+`order-indexer/` and `keeper-bot/` have working implementations — event
+indexing + REST API, and the poll/check/execute loop, respectively — not
+yet given the same audit pass as `contracts/` this session.
+
+`frontend/` is still scaffold-only: directory structure, package
+manifest, and base config, no UI logic yet.
+
+This file will be updated as each component's state changes.
 
 ---
 
@@ -96,6 +110,12 @@ duplication over premature abstraction at this stage.
   function, `ReentrancyGuard` where external calls are involved, pull-over-push
   for payments, no private keys in the `order-indexer` (it is read-only by
   design).
+- **Slither is part of the security workflow**: run via
+  `slither contracts/src/` — only `src/`; findings in `lib/` are external
+  dependencies, out of scope. Findings against `src/` are triaged: fixed
+  if real, or suppressed with a `// slither-disable-next-line
+  <detector-id>` comment plus a one-line `@dev`-style rationale directly
+  above the flagged line if accepted by design. Never suppressed silently.
 - **Simplicity preference**: avoid over-engineering. Prefer the simplest
   design that satisfies the requirement over a more "impressive" but harder
   to test/maintain one.
@@ -199,6 +219,14 @@ coverage with `forge coverage`.
   already runs PostgreSQL locally, so SQLite's zero-setup advantage
   doesn't apply, and this avoids a future migration if the project outlives
   the bootcamp demo. Decided 2026-08-16.
+- **`order.asset` is oracle-only, never the swap target.** `executeOrder()`
+  always swaps `weth` (resolved from `uniswapRouter.WETH()` at
+  construction, immutable) for `quoteToken` — `order.asset` only selects
+  which Chainlink feed the price condition is checked against. Necessary
+  because deposits are always ETH-denominated regardless of which asset
+  prices the condition; conflating the two would make Uniswap V2 revert
+  (it requires `path[0]` to be its own `WETH()` address) for any order
+  whose asset wasn't literally WETH. Decided 2026-08-17.
 
 ---
 
@@ -227,6 +255,9 @@ Expected variables, to be finalized as each service is built:
 - `DATABASE_URL` — `order-indexer`'s PostgreSQL connection string (Prisma).
   Local dev DB name: `orderkeeper_dev`.
 - `INDEXER_URL` — `keeper-bot`'s base URL for `order-indexer`'s REST API.
+- `ETHERSCAN_API_KEY` — used by `RUNBOOK.md`'s "Verify contract on
+  Etherscan" workflow (`forge verify-contract`). Free at
+  https://etherscan.io/apis. Not yet added to `contracts/.env.example`.
 
 `frontend/` needs `VITE_RPC_URL` and `VITE_CONTRACT_ADDRESS` as well —
 added during scaffolding, not yet reviewed as carefully as the rest of
