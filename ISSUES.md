@@ -29,3 +29,26 @@ OrderKeeper's oracle verification) so the reasoning cited for the self-run
 keeper-bot decision is independently checkable.
 
 ---
+
+### [OPEN] Sepolia WETH/DemoUSDC pool has drifted ~24% from live oracle price
+
+- **Component**: contracts
+- **Discovered**: 2026-08-17 — while adding `test_Fork_ExecuteOrder_RealSwap`
+  to `contracts/test/OrderKeeper.fork.t.sol`
+- **Status**: open
+
+The WETH/DemoUSDC Uniswap V2 pool was seeded at ETH ≈ $1,900 and hasn't
+been arbitraged since — no bots trade this testnet pool. The live
+Chainlink oracle now reads ETH ≈ $2,500, a ~24% gap. A real order with a
+realistic `maxSlippageBps` (e.g. 1%) will correctly have its
+`executeOrder()` call revert with
+`UniswapV2Router: INSUFFICIENT_OUTPUT_AMOUNT` — the slippage protection
+is working as designed, not a bug — but this makes the pool unusable for
+a convincing live demo without either re-seeding liquidity (adding more
+WETH + oracle-priced DemoUSDC to rebalance the ratio) or accepting an
+unrealistically wide `maxSlippageBps` for the demo run. Already
+documented as a troubleshooting symptom in `RUNBOOK.md`'s "End-to-end
+oracle loop verification" workflow; this entry tracks the underlying fix
+(re-seed liquidity) needed before Module 16.
+
+---
