@@ -34,5 +34,9 @@ export function loadDeployment(): DeploymentRecord {
     );
   }
 
-  return JSON.parse(raw) as DeploymentRecord;
+  try {
+    return JSON.parse(raw) as DeploymentRecord;
+  } catch {
+    throw new Error(`Could not parse ${DEPLOYMENT_FILE} — is it valid JSON?`);
+  }
 }
