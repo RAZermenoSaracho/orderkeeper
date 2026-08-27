@@ -111,6 +111,7 @@ contract OrderKeeperTest is Test {
         assertEq(orderKeeper.quoteToken(), address(quoteTokenMock));
         assertEq(orderKeeper.quoteTokenDecimals(), QUOTE_TOKEN_DECIMALS);
         assertEq(address(orderKeeper.uniswapRouter()), address(router));
+        assertEq(orderKeeper.weth(), router.WETH());
     }
 
     /// @notice Tests that construction reverts on a zero quote token address.
@@ -374,6 +375,57 @@ contract OrderKeeperTest is Test {
         return 18;
     }
 
+    /// @notice Fuzz: _minAmountOut's oracle-derived scaling and the
+    ///         keeper-fee formula both hold across a wide range of
+    ///         realistic order amounts, oracle prices, and slippage
+    ///         tolerances. Uses OrderKeeperHarness to call _minAmountOut
+    ///         directly, isolating its pure math from the full order
+    ///         lifecycle (oracle reads, Uniswap router, state transitions)
+    ///         that going through executeOrder() would otherwise require.
+    /// @dev Bounds: amount 0.0001-100 ETH (order.amount is msg.value, so
+    ///      always > 0 by createOrder's own ZeroAmount check); executionPrice
+    ///      $1-$1,000,000 normalized (realistic oracle range, matching this
+    ///      file's other price-bound tests); maxSlippageBps 1-MAX_SLIPPAGE_BPS
+    ///      (0 is untested here — 0% slippage tolerance is a degenerate,
+    ///      not realistic, case already implicitly exercised by
+    ///      test_ExecuteOrder_AcceptsExactAmountOutMin's boundary).
+    function testFuzz_MinAmountOutAndKeeperFee(uint256 amount, uint256 executionPrice, uint256 maxSlippageBps) public {
+        amount = bound(amount, 0.0001 ether, 100 ether);
+        executionPrice = bound(executionPrice, 1e18, 1_000_000e18);
+        maxSlippageBps = bound(maxSlippageBps, 1, orderKeeper.MAX_SLIPPAGE_BPS());
+
+        OrderKeeperHarness harness = new OrderKeeperHarness(owner, address(quoteTokenMock), address(router));
+
+        // --- keeperFee invariant: exact formula, no under/overflow, never
+        // exceeds the order amount itself. ---
+        uint256 keeperFee = (amount * harness.KEEPER_FEE_BPS()) / harness.MAX_SLIPPAGE_BPS();
+        assertEq(keeperFee, (amount * 50) / 10_000);
+        assertLe(keeperFee, amount);
+
+        uint256 swapAmount = amount - keeperFee;
+
+        // --- minAmountOut invariants ---
+        uint256 minAmountOut = harness.exposed_minAmountOut(swapAmount, executionPrice, maxSlippageBps);
+
+        // Unslippaged oracle-derived fair value, computed independently
+        // here (mirrors _minAmountOut's own internal fairValueOut calc) as
+        // the ceiling minAmountOut must never exceed — minAmountOut is
+        // fairValueOut minus a slippage cut, so it can never be more than
+        // fairValueOut itself, for any maxSlippageBps.
+        uint256 fairValueOut = (swapAmount * executionPrice * (10 ** harness.quoteTokenDecimals()))
+            / (10 ** (uint256(harness.PRICE_DECIMALS()) + 18));
+        assertLe(minAmountOut, fairValueOut);
+
+        // minAmountOut is never zero for a non-zero swapAmount — except at
+        // exactly 100% slippage tolerance (MAX_SLIPPAGE_BPS), where a
+        // caller has explicitly said they'll accept any output including
+        // zero. That's correct behavior, not a bug, so it's excluded here
+        // rather than asserted away.
+        if (maxSlippageBps < harness.MAX_SLIPPAGE_BPS()) {
+            assertGt(minAmountOut, 0);
+        }
+    }
+
     // =============================================================
     //                     CREATE ORDER TESTS
     // =============================================================
@@ -607,6 +659,44 @@ contract OrderKeeperTest is Test {
         assertGt(randomCaller.balance, 0);
     }
 
+    /// @notice Tests that executeOrder() always swaps WETH for quoteToken,
+    ///         never order.asset — asset is used solely for the oracle
+    ///         lookup. Registers a price feed under an address that is
+    ///         deliberately NOT the router's WETH, and confirms execution
+    ///         still succeeds and the actual swap path sent to the router
+    ///         is [weth, quoteToken], not [asset, quoteToken].
+    function test_ExecuteOrder_SwapsWethRegardlessOfAsset() public {
+        address differentAsset = makeAddr("differentAsset"); // deliberately != orderKeeper.weth()
+        assertNotEq(differentAsset, orderKeeper.weth());
+
+        vm.prank(owner);
+        orderKeeper.addPriceFeed(differentAsset, address(priceFeed));
+
+        vm.prank(user);
+        uint256 orderId = orderKeeper.createOrder{value: ORDER_AMOUNT}(
+            differentAsset,
+            OrderKeeper.PriceCondition.GreaterOrEqual,
+            3_500e18,
+            DEFAULT_SLIPPAGE_BPS,
+            block.timestamp + 1 days
+        );
+        router.setAmountOut(EXPECTED_FAIR_VALUE_OUT);
+
+        uint256 amountOut = orderKeeper.executeOrder(orderId);
+
+        assertEq(amountOut, EXPECTED_FAIR_VALUE_OUT);
+        assertEq(quoteTokenMock.balanceOf(user), EXPECTED_FAIR_VALUE_OUT);
+
+        address[] memory lastPath = router.getLastPath();
+        assertEq(lastPath.length, 2);
+        assertEq(lastPath[0], orderKeeper.weth());
+        assertNotEq(lastPath[0], differentAsset);
+        assertEq(lastPath[1], address(quoteTokenMock));
+
+        (,,,,,,, OrderKeeper.OrderStatus status) = orderKeeper.orders(orderId);
+        assertEq(uint8(status), uint8(OrderKeeper.OrderStatus.Executed));
+    }
+
     /// @notice Tests that executing a non-existent order reverts.
     function test_RevertWhen_ExecuteOrderNotFound() public {
         vm.expectRevert(abi.encodeWithSelector(OrderKeeper.OrderNotFound.selector, 0));
@@ -729,5 +819,24 @@ contract RevertingReceiver {
 
     receive() external payable {
         revert("RevertingReceiver: no ETH accepted");
+    }
+}
+
+/// @notice Test-only harness exposing OrderKeeper's internal _minAmountOut
+///         for direct fuzz testing of its pure math, isolated from the
+///         full order lifecycle (oracle reads, Uniswap router, state
+///         transitions) that would otherwise be required to observe it.
+contract OrderKeeperHarness is OrderKeeper {
+    constructor(address initialOwner, address quoteToken_, address uniswapRouter_)
+        OrderKeeper(initialOwner, quoteToken_, uniswapRouter_)
+    {}
+
+    /// @notice Exposes _minAmountOut for testing.
+    function exposed_minAmountOut(uint256 swapAmount, uint256 executionPrice, uint256 maxSlippageBps)
+        external
+        view
+        returns (uint256)
+    {
+        return _minAmountOut(swapAmount, executionPrice, maxSlippageBps);
     }
 }
