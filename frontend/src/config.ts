@@ -13,6 +13,14 @@ if (!contractAddress) {
   throw new Error("VITE_CONTRACT_ADDRESS is not set");
 }
 
+const envIndexerUrl = import.meta.env.VITE_INDEXER_URL;
+if (!envIndexerUrl) {
+  throw new Error("VITE_INDEXER_URL is not set");
+}
+
+// order-indexer's base URL, used to read order history.
+export const indexerUrl: string = envIndexerUrl;
+
 // OrderKeeper's deployed address on Sepolia, read from env rather than
 // deployments/sepolia.json (unlike order-indexer/keeper-bot): the frontend
 // is a browser bundle, not a Node process with filesystem access.
