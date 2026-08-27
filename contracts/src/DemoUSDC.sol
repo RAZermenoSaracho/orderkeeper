@@ -22,6 +22,8 @@ contract DemoUSDC is ERC20 {
     }
 
     /// @notice Mints `amount` tokens to `to`. Unrestricted — testnet only.
+    /// @param to The address to receive the newly minted tokens.
+    /// @param amount The amount of tokens to mint (6 decimals).
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
     }
