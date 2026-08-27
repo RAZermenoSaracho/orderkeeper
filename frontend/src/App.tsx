@@ -1,5 +1,6 @@
 import { useAccount, useBalance, useConnect, useDisconnect } from 'wagmi'
 import { formatUnits } from 'viem'
+import CreateOrderForm from './CreateOrderForm.tsx'
 
 function ConnectButton() {
   const { address, isConnected } = useAccount()
@@ -37,13 +38,18 @@ function ConnectButton() {
 }
 
 function App() {
+  const { isConnected } = useAccount()
+
   return (
     <>
       <header>
         <h1>OrderKeeper</h1>
         <ConnectButton />
       </header>
-      <main>{/* Order creation and history land in a later task. */}</main>
+      <main>
+        {/* Order history/cancellation land in a later task. */}
+        {isConnected && <CreateOrderForm />}
+      </main>
     </>
   )
 }
