@@ -18,6 +18,13 @@ if (!contractAddress) {
 // is a browser bundle, not a Node process with filesystem access.
 export const orderKeeperAddress = contractAddress as Address;
 
+// WETH's Sepolia address, hardcoded from deployments/sepolia.json's "weth"
+// field rather than a free-text input on the order form — order.asset only
+// selects which Chainlink feed the price condition checks against (see
+// CLAUDE.md's Design Decisions), and WETH/USD is the only feed this MVP's
+// order form needs to offer.
+export const defaultAssetAddress: Address = "0x1287B650e882514447b96a49a0f8DC1040B26d2A";
+
 // Sepolia only — this project's only target network (see CLAUDE.md).
 export const wagmiConfig = createConfig({
   chains: [sepolia],
