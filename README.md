@@ -139,6 +139,21 @@ than querying the contract directly — faster reads, at the cost of
 Decided during scaffolding (2026-08-16); direct contract reads remain a
 fallback path if indexer freshness ever becomes a concern.
 
+### `order.asset` is oracle-only, never the swap target
+
+`executeOrder()` always swaps `weth` — resolved from the Uniswap router's
+own `WETH()` at construction, and immutable from then on — for
+`quoteToken`. `order.asset` only selects which Chainlink feed the price
+condition is checked against; it never determines what the contract
+actually swaps.
+
+This split matters because deposits are always ETH-denominated,
+regardless of which asset an order's condition tracks. Conflating the two
+would mean Uniswap V2 rejects the swap outright for any order whose
+`asset` wasn't literally WETH — its router requires `path[0]` to be its
+own `WETH()` address for an ETH-value swap to succeed at all. Decided
+2026-08-17.
+
 ---
 
 ## On-Chain Activity
