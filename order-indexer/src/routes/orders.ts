@@ -58,14 +58,19 @@ function capitalize(status: string): string {
 // JSON.stringify serialization — converted to strings here rather than
 // numbers, since 18-decimal wei-scale values can exceed JS's safe integer
 // range.
-function serializeOrder(order: Order) {
+export function serializeOrder(order: Order) {
   return {
     orderId: order.orderId,
     owner: order.owner,
     asset: order.asset,
     condition: order.condition,
-    targetPrice: order.targetPrice.toString(),
-    amount: order.amount.toString(),
+    // Decimal.toString() switches to exponential notation above 1e21
+    // (targetPrice/executionPrice, at PRICE_DECIMALS=18, cross that at a
+    // $1,000 asset price) — toFixed() with no argument always returns
+    // plain integer digits, matching api-conventions.md's documented
+    // format and what consumers' BigInt(value) calls require.
+    targetPrice: order.targetPrice.toFixed(),
+    amount: order.amount.toFixed(),
     maxSlippageBps: order.maxSlippageBps,
     expiry: order.expiry.toISOString(),
     status: order.status,
@@ -73,9 +78,9 @@ function serializeOrder(order: Order) {
     createdAtTx: order.createdAtTx,
     executedAtBlock: order.executedAtBlock?.toString() ?? null,
     executedAtTx: order.executedAtTx,
-    executionPrice: order.executionPrice?.toString() ?? null,
-    keeperFee: order.keeperFee?.toString() ?? null,
-    amountOut: order.amountOut?.toString() ?? null,
+    executionPrice: order.executionPrice?.toFixed() ?? null,
+    keeperFee: order.keeperFee?.toFixed() ?? null,
+    amountOut: order.amountOut?.toFixed() ?? null,
     cancelledAtBlock: order.cancelledAtBlock?.toString() ?? null,
     cancelledAtTx: order.cancelledAtTx,
   };
