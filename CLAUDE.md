@@ -254,6 +254,10 @@ Expected variables, to be finalized as each service is built:
 - `UNISWAP_ROUTER_ADDRESS` — Sepolia V2 router address
 - `DATABASE_URL` — `order-indexer`'s PostgreSQL connection string (Prisma).
   Local dev DB name: `orderkeeper_dev`.
+- `PORT` — `order-indexer`'s HTTP listen port. Optional, defaults to `3001`.
+- `GETLOGS_BLOCK_RANGE` — `order-indexer`'s `eth_getLogs` chunk size during
+  backfill, to stay under provider block-range limits (e.g. Alchemy's free
+  tier caps at 10). Optional, defaults to `10`.
 - `INDEXER_URL` — `keeper-bot`'s base URL for `order-indexer`'s REST API.
 - `ETHERSCAN_API_KEY` — used by `RUNBOOK.md`'s "Verify contract on
   Etherscan" workflow (`forge verify-contract`). Free at
