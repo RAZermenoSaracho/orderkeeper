@@ -1,9 +1,17 @@
 import Fastify from "fastify";
+import cors from "@fastify/cors";
 import { loadDeployment } from "./deployment.js";
 import { startIndexer } from "./indexer.js";
 import { registerOrderRoutes } from "./routes/orders.js";
 
 const app = Fastify({ logger: true });
+
+// Permissive by design: this API is fully public and read-only (see
+// CLAUDE.md, api-conventions.md) — there's no auth or per-origin data to
+// protect, and no production deployment target yet, so reflecting any
+// origin is no less safe than *, but also works for the Vite dev server's
+// origin without hardcoding its port.
+await app.register(cors, { origin: true });
 
 app.get("/health", async () => ({ status: "ok" }));
 
