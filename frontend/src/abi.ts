@@ -20,6 +20,13 @@ export const orderKeeperAbi = [
   },
   {
     type: "function",
+    name: "cancelOrder",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "orderId", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
     name: "checkPriceCondition",
     stateMutability: "view",
     inputs: [{ name: "orderId", type: "uint256" }],
@@ -56,6 +63,15 @@ export const orderKeeperAbi = [
   { type: "error", name: "ZeroAmount", inputs: [] },
   { type: "error", name: "InvalidExpiry", inputs: [] },
   { type: "error", name: "InvalidSlippage", inputs: [{ name: "maxSlippageBps", type: "uint256" }] },
+  {
+    type: "error",
+    name: "NotOrderOwner",
+    inputs: [
+      { name: "caller", type: "address" },
+      { name: "orderId", type: "uint256" },
+    ],
+  },
+  { type: "error", name: "RefundFailed", inputs: [] },
   {
     type: "event",
     name: "OrderCreated",
