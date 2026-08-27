@@ -27,6 +27,10 @@ import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUn
 ///      and paying the caller a keeper fee. It is intentionally
 ///      permissionless: WHO calls it is not the security boundary, WHAT it
 ///      independently checks before moving funds is.
+///
+///      The swap itself always trades WETH for quoteToken — order.asset is
+///      used only to select which Chainlink feed the condition is checked
+///      against, never to determine what actually gets swapped.
 contract OrderKeeper is Ownable, ReentrancyGuard {
     // =============================================================
     //                        TYPES
@@ -50,7 +54,9 @@ contract OrderKeeper is Ownable, ReentrancyGuard {
     /// @param owner The address that created and funded the order, and the
     ///        only address allowed to cancel it.
     /// @param asset The token whose USD price this order's condition
-    ///        applies to (looked up in priceFeeds).
+    ///        applies to (looked up in priceFeeds) — used solely for the
+    ///        oracle check. The swap itself always trades WETH; deposits
+    ///        are ETH regardless of what asset is set to.
     /// @param condition Whether execution requires price >= or <= targetPrice.
     /// @param targetPrice The condition's threshold price, normalized to
     ///        PRICE_DECIMALS.
@@ -113,6 +119,17 @@ contract OrderKeeper is Ownable, ReentrancyGuard {
     /// @notice The Uniswap V2 router used to swap ETH for quoteToken on
     ///         execution.
     IUniswapV2Router02 public immutable uniswapRouter;
+
+    /// @notice The router's WETH address — always what executeOrder() sells
+    ///         via the Uniswap swap, regardless of any order's `asset`.
+    /// @dev Queried from uniswapRouter at construction rather than passed
+    ///      separately, so it can never drift from what the router itself
+    ///      requires as path[0] for an ETH-value swap. `asset` is used
+    ///      solely for the Chainlink price lookup (getAssetPrice /
+    ///      checkPriceCondition) — deposits are always ETH, so the token
+    ///      actually sold never depends on which asset an order's condition
+    ///      happens to track.
+    address public immutable weth;
 
     /// @notice The id that will be assigned to the next created order.
     uint256 public nextOrderId;
@@ -255,6 +272,7 @@ contract OrderKeeper is Ownable, ReentrancyGuard {
         quoteToken = quoteToken_;
         quoteTokenDecimals = IERC20Metadata(quoteToken_).decimals();
         uniswapRouter = IUniswapV2Router02(uniswapRouter_);
+        weth = uniswapRouter.WETH();
     }
 
     // =============================================================
@@ -294,7 +312,9 @@ contract OrderKeeper is Ownable, ReentrancyGuard {
     ///      call itself — so no reentrancy guard is needed here. Emits
     ///      OrderCreated.
     /// @param asset The token whose USD price the condition applies to; must
-    ///        already have a registered feed (see addPriceFeed).
+    ///        already have a registered feed (see addPriceFeed). Used solely
+    ///        for the oracle check — the eventual swap always trades WETH
+    ///        (see weth), regardless of this value.
     /// @param condition Whether execution requires price >= or <= targetPrice.
     /// @param targetPrice The condition's threshold price, normalized to
     ///        PRICE_DECIMALS.
@@ -313,6 +333,10 @@ contract OrderKeeper is Ownable, ReentrancyGuard {
         // CHECKS
         if (msg.value == 0) revert ZeroAmount();
         if (address(priceFeeds[asset]) == address(0)) revert UnsupportedAsset(asset);
+        // Expiry windows here are minutes-to-hours scale; the ~seconds of
+        // drift a miner could apply to block.timestamp is irrelevant at
+        // that granularity.
+        // slither-disable-next-line timestamp
         if (expiry <= block.timestamp) revert InvalidExpiry();
         if (maxSlippageBps > MAX_SLIPPAGE_BPS) revert InvalidSlippage(maxSlippageBps);
 
@@ -352,6 +376,9 @@ contract OrderKeeper is Ownable, ReentrancyGuard {
         emit OrderCancelled(orderId, msg.sender, refundAmount);
 
         // INTERACTIONS
+        // msg.sender is already validated to equal order.owner above (the
+        // NotOrderOwner check) — the refund recipient is never arbitrary.
+        // slither-disable-next-line low-level-calls
         (bool success,) = msg.sender.call{value: refundAmount}("");
         if (!success) revert RefundFailed();
     }
@@ -381,6 +408,10 @@ contract OrderKeeper is Ownable, ReentrancyGuard {
         Order storage order = orders[orderId];
         if (order.owner == address(0)) revert OrderNotFound(orderId);
         if (order.status != OrderStatus.Pending) revert OrderNotPending(orderId, order.status);
+        // Expiry windows here are minutes-to-hours scale; the ~seconds of
+        // drift a miner could apply to block.timestamp is irrelevant at
+        // that granularity.
+        // slither-disable-next-line timestamp
         if (block.timestamp > order.expiry) revert OrderExpired(orderId, order.expiry);
 
         uint256 executionPrice = getAssetPrice(order.asset);
@@ -393,11 +424,15 @@ contract OrderKeeper is Ownable, ReentrancyGuard {
         uint256 keeperFee = (order.amount * KEEPER_FEE_BPS) / MAX_SLIPPAGE_BPS;
         uint256 swapAmount = order.amount - keeperFee;
         uint256 amountOutMin = _minAmountOut(swapAmount, executionPrice, order.maxSlippageBps);
-        address[] memory path = _swapPath(order.asset);
+        address[] memory path = _swapPath();
         address orderOwner = order.owner;
         order.status = OrderStatus.Executed;
 
         // INTERACTIONS
+        // executeOrder is permissionless by design (see contract-level
+        // NatSpec): the fee recipient is deliberately whoever triggers
+        // execution, not a fixed or pre-validated address.
+        // slither-disable-next-line arbitrary-send-eth,low-level-calls
         (bool feeSuccess,) = msg.sender.call{value: keeperFee}("");
         if (!feeSuccess) revert KeeperFeeTransferFailed();
 
@@ -423,9 +458,18 @@ contract OrderKeeper is Ownable, ReentrancyGuard {
         AggregatorV3Interface feed = priceFeeds[asset];
         if (address(feed) == address(0)) revert UnsupportedAsset(asset);
 
+        // roundId and answeredInRound are intentionally unused — the
+        // updatedAt staleness check below already covers the relevant
+        // risk (a round too old to trust), without needing to also compare
+        // roundId against answeredInRound.
+        // slither-disable-next-line unused-return
         (, int256 answer,, uint256 updatedAt,) = feed.latestRoundData();
 
         if (answer <= 0) revert InvalidPrice();
+        // PRICE_STALENESS_THRESHOLD is 1 hour; the ~seconds of drift a
+        // miner could apply to block.timestamp is irrelevant at that
+        // granularity.
+        // slither-disable-next-line timestamp
         if (updatedAt == 0 || block.timestamp - updatedAt > PRICE_STALENESS_THRESHOLD) {
             revert InvalidPrice();
         }
@@ -474,6 +518,10 @@ contract OrderKeeper is Ownable, ReentrancyGuard {
     ///      oracle price the condition was checked against, not Uniswap's
     ///      own quote), then applies maxSlippageBps as the allowed
     ///      deviation. Assumes quoteToken is USD-pegged (1 quoteToken == $1).
+    ///      Computed as one combined fraction with a single final division,
+    ///      not fairValueOut-divided-then-multiplied-then-divided-again —
+    ///      the earlier two-step form lost avoidable precision by rounding
+    ///      fairValueOut down before applying the slippage cut.
     /// @param swapAmount The ETH amount being swapped (wei).
     /// @param executionPrice asset's USD price, normalized to PRICE_DECIMALS.
     /// @param maxSlippageBps The order's maximum acceptable slippage.
@@ -483,17 +531,20 @@ contract OrderKeeper is Ownable, ReentrancyGuard {
         view
         returns (uint256 amountOutMin)
     {
-        uint256 fairValueOut =
-            (swapAmount * executionPrice * (10 ** quoteTokenDecimals)) / (10 ** (uint256(PRICE_DECIMALS) + 18));
-        amountOutMin = fairValueOut - (fairValueOut * maxSlippageBps) / MAX_SLIPPAGE_BPS;
+        amountOutMin =
+            (swapAmount * executionPrice * (10 ** quoteTokenDecimals) * (MAX_SLIPPAGE_BPS - maxSlippageBps))
+                / (10 ** (uint256(PRICE_DECIMALS) + 18) * MAX_SLIPPAGE_BPS);
     }
 
-    /// @notice Builds the two-hop Uniswap V2 swap path from asset to quoteToken.
-    /// @param asset The token being sold.
-    /// @return path The [asset, quoteToken] path for swapExactETHForTokens.
-    function _swapPath(address asset) internal view returns (address[] memory path) {
+    /// @notice Builds the two-hop Uniswap V2 swap path from WETH to quoteToken.
+    /// @dev Always starts from weth, never order.asset — deposits are ETH-
+    ///      denominated regardless of which asset an order's price condition
+    ///      tracks, and Uniswap V2 requires path[0] to be the router's own
+    ///      WETH address for swapExactETHForTokens to succeed at all.
+    /// @return path The [weth, quoteToken] path for swapExactETHForTokens.
+    function _swapPath() internal view returns (address[] memory path) {
         path = new address[](2);
-        path[0] = asset;
+        path[0] = weth;
         path[1] = quoteToken;
     }
 
