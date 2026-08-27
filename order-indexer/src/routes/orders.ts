@@ -10,6 +10,21 @@ type StatusParam = (typeof VALID_STATUSES)[number];
 // broader read surface (GET /orders/:id, owner filtering, pagination)
 // waits for the frontend task that actually needs it.
 export function registerOrderRoutes(app: FastifyInstance): void {
+  // Catches anything a route handler doesn't handle itself (e.g. a DB
+  // failure from prisma.order.findMany) so the client still gets the
+  // documented {error:{code,message}} shape instead of Fastify's default
+  // error response.
+  app.setErrorHandler((error, request, reply) => {
+    request.log.error(error);
+    reply.code(500);
+    return {
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "An unexpected error occurred",
+      },
+    };
+  });
+
   app.get("/orders", async (request, reply) => {
     const statusParam = (request.query as { status?: string }).status;
 
