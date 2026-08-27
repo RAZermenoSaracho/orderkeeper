@@ -7,6 +7,19 @@
 export const orderKeeperAbi = [
   {
     type: "function",
+    name: "createOrder",
+    stateMutability: "payable",
+    inputs: [
+      { name: "asset", type: "address" },
+      { name: "condition", type: "uint8" },
+      { name: "targetPrice", type: "uint256" },
+      { name: "maxSlippageBps", type: "uint256" },
+      { name: "expiry", type: "uint256" },
+    ],
+    outputs: [{ name: "orderId", type: "uint256" }],
+  },
+  {
+    type: "function",
     name: "checkPriceCondition",
     stateMutability: "view",
     inputs: [{ name: "orderId", type: "uint256" }],
@@ -40,6 +53,9 @@ export const orderKeeperAbi = [
   { type: "error", name: "UnsupportedAsset", inputs: [{ name: "asset", type: "address" }] },
   { type: "error", name: "InvalidPrice", inputs: [] },
   { type: "error", name: "KeeperFeeTransferFailed", inputs: [] },
+  { type: "error", name: "ZeroAmount", inputs: [] },
+  { type: "error", name: "InvalidExpiry", inputs: [] },
+  { type: "error", name: "InvalidSlippage", inputs: [{ name: "maxSlippageBps", type: "uint256" }] },
   {
     type: "event",
     name: "OrderCreated",
