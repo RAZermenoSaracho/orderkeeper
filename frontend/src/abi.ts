@@ -27,6 +27,13 @@ export const orderKeeperAbi = [
   },
   {
     type: "function",
+    name: "getAssetPrice",
+    stateMutability: "view",
+    inputs: [{ name: "asset", type: "address" }],
+    outputs: [{ name: "price", type: "uint256" }],
+  },
+  {
+    type: "function",
     name: "checkPriceCondition",
     stateMutability: "view",
     inputs: [{ name: "orderId", type: "uint256" }],
