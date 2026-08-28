@@ -58,7 +58,12 @@ contract OrderKeeperTest is Test {
         quoteTokenMock = new MockERC20("Mock USD", "mUSD", QUOTE_TOKEN_DECIMALS);
         router = new MockUniswapV2Router(quoteTokenMock);
 
-        vm.prank(owner);
+        // Not pranked as owner: initialOwner is set via the constructor's
+        // Ownable(initialOwner) argument, not msg.sender, so the deployer's
+        // identity is irrelevant here — and forge's `new` (CREATE) doesn't
+        // count as "applying" a prank the way a call does, which can throw
+        // "cannot overwrite a prank until it is applied at least once" on a
+        // later unconsumed vm.prank() on stricter Foundry versions.
         orderKeeper = new OrderKeeper(owner, address(quoteTokenMock), address(router));
 
         vm.deal(user, USER_STARTING_BALANCE);

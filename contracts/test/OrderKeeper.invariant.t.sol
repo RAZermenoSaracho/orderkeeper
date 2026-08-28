@@ -93,7 +93,13 @@ contract OrderKeeperInvariantTest is Test {
         MockUniswapV2Router router = new MockUniswapV2Router(quoteTokenMock);
         router.setAmountOut(type(uint128).max);
 
-        vm.prank(owner);
+        // Not pranked as owner: initialOwner is set via the constructor's
+        // Ownable(initialOwner) argument, not msg.sender, so the deployer's
+        // identity is irrelevant here — and forge's `new` (CREATE) doesn't
+        // count as "applying" a prank the way a call does, so a prank set
+        // immediately before `new` and left unconsumed until the next
+        // vm.prank() below throws "cannot overwrite a prank until it is
+        // applied at least once" on stricter Foundry versions.
         orderKeeper = new OrderKeeper(owner, address(quoteTokenMock), address(router));
 
         vm.prank(owner);
