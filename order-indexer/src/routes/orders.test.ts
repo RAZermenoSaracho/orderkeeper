@@ -1,5 +1,4 @@
-import { test } from "node:test";
-import assert from "node:assert/strict";
+import { describe, expect, test } from "vitest";
 import { Prisma } from "@prisma/client";
 import type { Order } from "@prisma/client";
 import { serializeOrder } from "./orders.js";
@@ -33,50 +32,92 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
   };
 }
 
-test("serializeOrder outputs plain integer strings, not exponential notation, for large Decimal fields", () => {
-  const serialized = serializeOrder(makeOrder());
+describe("serializeOrder", () => {
+  test("outputs plain integer strings, not exponential notation, for large Decimal fields", () => {
+    const serialized = serializeOrder(makeOrder());
 
-  assert.equal(serialized.targetPrice, "1000000000000000000000");
-  assert.equal(serialized.executionPrice, "1907173604190000000000");
+    expect(serialized.targetPrice).toBe("1000000000000000000000");
+    expect(serialized.executionPrice).toBe("1907173604190000000000");
 
-  // Regression guard: these are the exact values that previously
-  // serialized as "1e+21" / "1.90717360419e+21" via Decimal.toString(),
-  // which BigInt() cannot parse.
-  assert.doesNotMatch(serialized.targetPrice, /e\+/);
-  assert.doesNotMatch(serialized.executionPrice, /e\+/);
-  assert.doesNotThrow(() => BigInt(serialized.targetPrice));
-  assert.doesNotThrow(() => BigInt(serialized.executionPrice as string));
-});
+    // Regression guard: these are the exact values that previously
+    // serialized as "1e+21" / "1.90717360419e+21" via Decimal.toString(),
+    // which BigInt() cannot parse.
+    expect(serialized.targetPrice).not.toMatch(/e\+/);
+    expect(serialized.executionPrice).not.toMatch(/e\+/);
+    expect(() => BigInt(serialized.targetPrice)).not.toThrow();
+    expect(() => BigInt(serialized.executionPrice as string)).not.toThrow();
+  });
 
-test("serializeOrder outputs plain integer strings for amount and keeperFee at ordinary (non-exponential) magnitudes", () => {
-  const serialized = serializeOrder(makeOrder());
+  test("outputs plain integer strings for amount and keeperFee at ordinary (non-exponential) magnitudes", () => {
+    const serialized = serializeOrder(makeOrder());
 
-  assert.equal(serialized.amount, "1000000000000000000000");
-  assert.equal(serialized.keeperFee, "5000000000000");
-  assert.doesNotThrow(() => BigInt(serialized.amount));
-  assert.doesNotThrow(() => BigInt(serialized.keeperFee as string));
-});
+    expect(serialized.amount).toBe("1000000000000000000000");
+    expect(serialized.keeperFee).toBe("5000000000000");
+    expect(() => BigInt(serialized.amount)).not.toThrow();
+    expect(() => BigInt(serialized.keeperFee as string)).not.toThrow();
+  });
 
-test("serializeOrder outputs a plain integer string for amountOut", () => {
-  const serialized = serializeOrder(makeOrder());
+  test("outputs a plain integer string for amountOut", () => {
+    const serialized = serializeOrder(makeOrder());
 
-  assert.equal(serialized.amountOut, "1887231");
-  assert.doesNotThrow(() => BigInt(serialized.amountOut as string));
-});
+    expect(serialized.amountOut).toBe("1887231");
+    expect(() => BigInt(serialized.amountOut as string)).not.toThrow();
+  });
 
-test("serializeOrder passes through null for unset executed-only Decimal fields on a pending order", () => {
-  const serialized = serializeOrder(
-    makeOrder({
-      status: "Pending",
-      executedAtBlock: null,
-      executedAtTx: null,
-      executionPrice: null,
-      keeperFee: null,
-      amountOut: null,
-    }),
-  );
+  test("passes through null for unset executed-only Decimal fields on a pending order", () => {
+    const serialized = serializeOrder(
+      makeOrder({
+        status: "Pending",
+        executedAtBlock: null,
+        executedAtTx: null,
+        executionPrice: null,
+        keeperFee: null,
+        amountOut: null,
+      }),
+    );
 
-  assert.equal(serialized.executionPrice, null);
-  assert.equal(serialized.keeperFee, null);
-  assert.equal(serialized.amountOut, null);
+    expect(serialized.executionPrice).toBeNull();
+    expect(serialized.keeperFee).toBeNull();
+    expect(serialized.amountOut).toBeNull();
+  });
+
+  test("serializes orderId, owner, asset, condition, maxSlippageBps, and status verbatim", () => {
+    const serialized = serializeOrder(makeOrder());
+
+    expect(serialized.orderId).toBe(0);
+    expect(serialized.owner).toBe("0x369A2e8133Ea0670fCC7C96ff3220c43D3ffeA7A");
+    expect(serialized.asset).toBe("0x1287B650e882514447b96a49a0f8DC1040B26d2A");
+    expect(serialized.condition).toBe("GreaterOrEqual");
+    expect(serialized.maxSlippageBps).toBe(100);
+    expect(serialized.status).toBe("Executed");
+  });
+
+  test("serializes block numbers as strings and expiry as an ISO 8601 string", () => {
+    const serialized = serializeOrder(makeOrder());
+
+    expect(serialized.createdAtBlock).toBe("11509603");
+    expect(serialized.executedAtBlock).toBe("11509604");
+    expect(serialized.expiry).toBe("2026-08-17T18:40:35.000Z");
+  });
+
+  test("passes through null for cancelledAtBlock/cancelledAtTx on a non-cancelled order", () => {
+    const serialized = serializeOrder(makeOrder());
+
+    expect(serialized.cancelledAtBlock).toBeNull();
+    expect(serialized.cancelledAtTx).toBeNull();
+  });
+
+  test("serializes cancelledAtBlock/cancelledAtTx for a cancelled order", () => {
+    const serialized = serializeOrder(
+      makeOrder({
+        status: "Cancelled",
+        cancelledAtBlock: 11509700n,
+        cancelledAtTx: "0xaaaa1111dd3589745bc41113afc325d2b1fa67514379d9a0efa0ba4d52c3b2f7",
+      }),
+    );
+
+    expect(serialized.status).toBe("Cancelled");
+    expect(serialized.cancelledAtBlock).toBe("11509700");
+    expect(serialized.cancelledAtTx).toBe("0xaaaa1111dd3589745bc41113afc325d2b1fa67514379d9a0efa0ba4d52c3b2f7");
+  });
 });
