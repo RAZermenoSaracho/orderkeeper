@@ -184,6 +184,45 @@ Deployment transactions:
 All six transactions confirmed successfully. Full detail in
 `contracts/broadcast/DeployOrderKeeper.s.sol/11155111/run-latest.json`.
 
+### Verified end-to-end: full stack, current deployment (2026-08-28)
+
+The first fully-verified run against the corrected contract above — after
+both the `order.asset`/swap-path fix and a fix to `order-indexer`'s event
+watching (it used to rely on viem's filter-based `watchContractEvent`,
+which failed against Alchemy's free tier; see `order-indexer/src/indexer.ts`)
+— confirming the entire stack live end-to-end: frontend order creation →
+`order-indexer` capturing `OrderCreated` within a single poll cycle →
+`keeper-bot` detecting the pending order and calling `executeOrder()` →
+frontend reflecting the order's `Executed` status.
+
+**Order #1 — slippage protection working as designed**: created with the
+default 100 bps (1%) max slippage. `keeper-bot`'s `executeOrder()` call
+reverted with `UniswapV2Router: INSUFFICIENT_OUTPUT_AMOUNT` — the
+WETH/DemoUSDC pool's known ~24%+ drift from the live oracle price (see
+[ISSUES.md](ISSUES.md)) exceeded that tolerance. This is the slippage
+guard doing exactly its job, not a bug. Cancelled and replaced by Order #2
+below with a wider tolerance.
+
+- **`createOrder()` tx**: [`0xcdccc3b0c4cd272e54295cd1f84f81cbc2336d530a0450336ed55f19a6d3c1fd`](https://sepolia.etherscan.io/tx/0xcdccc3b0c4cd272e54295cd1f84f81cbc2336d530a0450336ed55f19a6d3c1fd) — block `11585523`
+- **`cancelOrder()` tx**: [`0xf5433abd42f48fe192a630fc30e1cb018c7b3f887b7beacfc2ce39e197ca6afa`](https://sepolia.etherscan.io/tx/0xf5433abd42f48fe192a630fc30e1cb018c7b3f887b7beacfc2ce39e197ca6afa) — block `11585544`
+
+**Order #2 — executed successfully**: same WETH `GreaterOrEqual $1,000`
+condition and 0.001 ETH deposit as Order #1, this time with
+`maxSlippageBps` raised to `3000` (30%) to absorb the pool drift.
+
+- **`createOrder()` tx**: [`0x92f37e785eca0c631931982d8c9cad4ad18a54849f9a2a5644e1e65ab532234e`](https://sepolia.etherscan.io/tx/0x92f37e785eca0c631931982d8c9cad4ad18a54849f9a2a5644e1e65ab532234e) — block `11585550`
+- **`executeOrder()` tx**: [`0xb9cd5dce55a08be6291358f00d89a303be0c3a9510fc2a8496742fe7233a9cde`](https://sepolia.etherscan.io/tx/0xb9cd5dce55a08be6291358f00d89a303be0c3a9510fc2a8496742fe7233a9cde) — block `11585552`
+- **`executionPrice`**: `2516643227570000000000` (≈ $2,516.64 — the live
+  oracle read at execution time, not the pool's stale price)
+- **`keeperFee`**: `5000000000000` (0.000005 ETH — 0.5% of the 0.001 ETH
+  order, per `KEEPER_FEE_BPS`)
+- **`amountOut`**: `2477619` (≈ 2.477619 DemoUSDC, 6 decimals)
+
+`order-indexer` captured both orders' `OrderCreated` events within a
+single poll cycle of their transactions confirming, proving its
+`watchContractEvent` fix held up against a real live event, not just the
+local verification it was fixed against.
+
 ### Historical: first verified end-to-end run (2026-08-17)
 
 **Superseded** — this run was against the previous contract deployment,
