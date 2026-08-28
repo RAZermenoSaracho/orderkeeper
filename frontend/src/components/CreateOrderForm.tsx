@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
 import { BaseError, parseEther, parseUnits } from 'viem'
-import { orderKeeperAbi } from './abi.ts'
-import { defaultAssetAddress, orderKeeperAddress } from './config.ts'
+import { orderKeeperAbi } from '../abi.ts'
+import { defaultAssetAddress, orderKeeperAddress } from '../config.ts'
 
 const CONDITIONS = [
   { value: 0, label: 'Greater or equal (≥)' },

@@ -2,8 +2,8 @@ import { useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAccount, useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
 import { BaseError, formatUnits } from 'viem'
-import { orderKeeperAbi } from './abi.ts'
-import { indexerUrl, orderKeeperAddress } from './config.ts'
+import { orderKeeperAbi } from '../abi.ts'
+import { indexerUrl, orderKeeperAddress } from '../config.ts'
 
 // Matches order-indexer's serializeOrder() (order-indexer/src/routes/orders.ts).
 interface IndexedOrder {

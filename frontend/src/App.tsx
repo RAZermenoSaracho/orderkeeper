@@ -1,7 +1,7 @@
 import { useAccount, useBalance, useConnect, useDisconnect } from 'wagmi'
 import { formatUnits } from 'viem'
-import CreateOrderForm from './CreateOrderForm.tsx'
-import OrderList from './OrderList.tsx'
+import CreateOrderForm from './components/CreateOrderForm.tsx'
+import OrderList from './components/OrderList.tsx'
 
 function ConnectButton() {
   const { address, isConnected } = useAccount()
