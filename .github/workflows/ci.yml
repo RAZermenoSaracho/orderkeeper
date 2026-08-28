@@ -41,7 +41,15 @@ jobs:
         working-directory: contracts
     steps:
       - uses: actions/checkout@v4
+      # Pinned to match the version installed locally (`forge --version`)
+      # rather than resolving whatever's current at runner execution time —
+      # otherwise CI silently drifts onto newer Foundry releases, which has
+      # already broken a test once (stricter vm.prank semantics around
+      # unconsumed pranks before a `new` / CREATE call; see the setUp()
+      # fixes in test/OrderKeeper*.sol). Bump deliberately, not implicitly.
       - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
 
       # contracts/lib/ is gitignored with no submodules and no lockfile
       # (pre-existing, not introduced by this workflow) — dependencies are
