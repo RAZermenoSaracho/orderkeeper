@@ -51,9 +51,20 @@ returned by `GET /orders`), not a separate indexer-assigned id, once added.
 - `code` is a stable, machine-readable string; `message` is human-readable
   and not relied upon by clients for logic.
 
+## Rate Limiting
+
+`GET /orders` is rate-limited per IP via `@fastify/rate-limit`: 100
+requests/minute by default (`RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_MS`,
+see `.env.example`) — chosen to comfortably cover several open frontend
+tabs and multiple keeper-bot instances polling normally, while still
+bounding scripted abuse. `/health` is deliberately excluded, so uptime
+monitoring never competes with real traffic for the same budget. Exceeding
+the limit returns `429`, reformatted by the shared `setErrorHandler` into
+the standard `{error:{code:"RATE_LIMIT_EXCEEDED", message}}` shape rather
+than the plugin's raw default response body.
+
 ## Not yet decided
 
 - Auth (if any) for read access — currently a fully public, read-only API
   per `CLAUDE.md`, but this hasn't been explicitly confirmed.
-- Rate limiting.
 - Versioning strategy (`/v1/...` prefix vs none).

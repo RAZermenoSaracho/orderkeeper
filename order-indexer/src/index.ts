@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import rateLimit from "@fastify/rate-limit";
 import { loadDeployment } from "./deployment.js";
 import { startIndexer } from "./indexer.js";
 import { registerOrderRoutes } from "./routes/orders.js";
@@ -12,6 +13,12 @@ const app = Fastify({ logger: true });
 // origin is no less safe than *, but also works for the Vite dev server's
 // origin without hardcoding its port.
 await app.register(cors, { origin: true });
+
+// global: false — applied per-route (see routes/orders.ts) rather than to
+// every route. /health deliberately stays unthrottled: it's meant for
+// uptime monitoring (see ROADMAP.md's Operational Monitoring milestone),
+// which shouldn't compete with real traffic for the same budget.
+await app.register(rateLimit, { global: false });
 
 app.get("/health", async () => ({ status: "ok" }));
 
