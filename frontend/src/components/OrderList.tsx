@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useAccount, useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
 import { BaseError, formatUnits } from 'viem'
 import { orderKeeperAbi } from '../abi.ts'
-import { indexerUrl, orderKeeperAddress } from '../config.ts'
+import { indexerUrl, orderKeeperAddress, SUPPORTED_ASSETS } from '../config.ts'
 
 // Matches order-indexer's serializeOrder() (order-indexer/src/routes/orders.ts).
 interface IndexedOrder {
@@ -31,6 +31,13 @@ const POLL_INTERVAL_MS = 10_000
 const CONDITION_LABEL: Record<IndexedOrder['condition'], string> = {
   GreaterOrEqual: '≥',
   LessOrEqual: '≤',
+}
+
+// Falls back to the raw address for an order whose asset isn't in the
+// current list (e.g. registered directly on-chain, outside this frontend).
+function assetLabel(address: string): string {
+  const match = SUPPORTED_ASSETS.find((asset) => asset.address.toLowerCase() === address.toLowerCase())
+  return match ? match.label : `${address.slice(0, 6)}...${address.slice(-4)}`
 }
 
 // GET /orders has no owner filter yet (see .claude/rules/api-conventions.md
@@ -126,7 +133,7 @@ function OrderList() {
               </div>
               <div className="order-item-row">
                 <span>
-                  Asset: WETH ({order.asset.slice(0, 6)}...{order.asset.slice(-4)})
+                  Asset: {assetLabel(order.asset)} ({order.asset.slice(0, 6)}...{order.asset.slice(-4)})
                 </span>
               </div>
               <div className="order-item-row">

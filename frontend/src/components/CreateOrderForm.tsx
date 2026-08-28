@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useReadContract, useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
-import { BaseError, formatUnits, parseEther, parseUnits } from 'viem'
+import { BaseError, formatUnits, parseEther, parseUnits, type Address } from 'viem'
 import { orderKeeperAbi } from '../abi.ts'
-import { defaultAssetAddress, orderKeeperAddress } from '../config.ts'
+import { orderKeeperAddress, SUPPORTED_ASSETS } from '../config.ts'
 
 const CONDITIONS = [
   { value: 0, label: 'Greater or equal (≥)' },
@@ -29,7 +29,7 @@ function useSecondsAgo(since: number | undefined): number | null {
   return Math.max(0, Math.floor((Date.now() - since) / 1_000))
 }
 
-function LivePrice() {
+function LivePrice({ asset }: { asset: Address }) {
   const {
     data: price,
     error,
@@ -38,7 +38,7 @@ function LivePrice() {
     address: orderKeeperAddress,
     abi: orderKeeperAbi,
     functionName: 'getAssetPrice',
-    args: [defaultAssetAddress],
+    args: [asset],
     query: {
       // Reads exactly what executeOrder() would evaluate (staleness
       // checks and decimal normalization included) via the contract's
@@ -63,6 +63,8 @@ function LivePrice() {
 }
 
 function CreateOrderForm() {
+  const [assetIndex, setAssetIndex] = useState(0)
+  const selectedAsset = SUPPORTED_ASSETS[assetIndex]!
   const [condition, setCondition] = useState<0 | 1>(0)
   const [targetPrice, setTargetPrice] = useState('')
   const [ethAmount, setEthAmount] = useState('')
@@ -104,7 +106,7 @@ function CreateOrderForm() {
       address: orderKeeperAddress,
       abi: orderKeeperAbi,
       functionName: 'createOrder',
-      args: [defaultAssetAddress, condition, targetPriceWei, maxSlippageBpsNum, expiryTimestamp],
+      args: [selectedAsset.address, condition, targetPriceWei, maxSlippageBpsNum, expiryTimestamp],
       value: ethAmountWei,
     })
   }
@@ -124,16 +126,24 @@ function CreateOrderForm() {
     <form className="create-order-form" onSubmit={handleSubmit}>
       <h2>Create Order</h2>
 
-      <div className="form-row">
+      <label className="form-row">
         <span className="form-label">Asset</span>
-        <span className="form-static">
-          WETH ({defaultAssetAddress.slice(0, 6)}...{defaultAssetAddress.slice(-4)})
-        </span>
-      </div>
+        <select
+          value={assetIndex}
+          onChange={(event) => setAssetIndex(Number(event.target.value))}
+          disabled={isSubmitting}
+        >
+          {SUPPORTED_ASSETS.map((asset, index) => (
+            <option key={asset.address} value={index}>
+              {asset.label} ({asset.address.slice(0, 6)}...{asset.address.slice(-4)})
+            </option>
+          ))}
+        </select>
+      </label>
 
       <div className="form-row">
         <span className="form-label">Live price</span>
-        <LivePrice />
+        <LivePrice asset={selectedAsset.address} />
       </div>
 
       <label className="form-row">
