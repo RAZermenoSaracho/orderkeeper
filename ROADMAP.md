@@ -68,11 +68,12 @@ whole stack demo-ready and verifiably trustless end-to-end.
 
 **Status: ACTIVE**
 
-With Milestone 7 (CI pipeline) confirmed and shipped, my focus ahead of
-the Module 16 presentation is Milestone 8, the Solidity dependency
-lockfile: a direct, easy follow-up to a gap the CI pipeline work itself
-surfaced (`contracts/lib/` has no reproducible pinning), and config-only
-work like the milestones around it.
+With Milestone 9 (mobile-responsive layout + component reorganization)
+confirmed and shipped, my focus ahead of the Module 16 presentation is
+Milestone 10, running a second `keeper-bot` instance to confirm the
+existing race-condition handling holds up under real concurrent
+competition — next in difficulty order: mostly operational (standing up a
+second instance), not new application code.
 
 # Milestone 1 - Contracts (Order Lifecycle + Oracle Verification)
 
@@ -159,7 +160,7 @@ Goals:
 
 # Milestone 8 - Solidity Dependency Lockfile for contracts/lib/
 
-Status: PLANNED
+Status: COMPLETED
 Depends on: Milestone 1
 
 Goals:
@@ -178,7 +179,7 @@ Goals:
 
 # Milestone 9 - Mobile-Responsive Layout + Component Reorganization
 
-Status: PLANNED
+Status: COMPLETED
 Depends on: Milestone 4
 
 Goals:
