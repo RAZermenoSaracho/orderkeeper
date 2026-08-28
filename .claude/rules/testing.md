@@ -21,7 +21,14 @@ forge test --fork-url $RPC_URL   # fork tests
 forge coverage                    # coverage
 ```
 
-## Other services
+## `order-indexer/`, `keeper-bot/`, `frontend/`
 
-No testing stack has been finalized yet for `order-indexer/`,
-`keeper-bot/`, or `frontend/`. Update this file once one is chosen.
+Vitest across all three, one unified toolchain rather than splitting
+`node:test` and Vitest across the repo (`frontend/` additionally uses
+React Testing Library). Commands are the same in each: `npm test` / `npm
+run test:coverage`. See each service's own `CLAUDE.md` for
+directory-specific testing conventions (mocking patterns, file
+organization) — this file only tracks the stack choice itself.
+
+Decided 2026-08-28, during Milestone 13 (Full Test Coverage) in
+`ROADMAP.md`.
