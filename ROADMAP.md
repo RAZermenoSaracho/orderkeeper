@@ -68,11 +68,11 @@ whole stack demo-ready and verifiably trustless end-to-end.
 
 **Status: ACTIVE**
 
-With Milestone 6 (rate limiting) confirmed and shipped, my focus ahead of
-the Module 16 presentation is Milestone 7 — the CI pipeline — next in
-difficulty order: mostly wiring already-passing local commands (`forge
-test`, `forge coverage`, `slither`, lint) into GitHub Actions rather than
-writing new application logic.
+With Milestone 7 (CI pipeline) confirmed and shipped, my focus ahead of
+the Module 16 presentation is Milestone 8, the Solidity dependency
+lockfile: a direct, easy follow-up to a gap the CI pipeline work itself
+surfaced (`contracts/lib/` has no reproducible pinning), and config-only
+work like the milestones around it.
 
 # Milestone 1 - Contracts (Order Lifecycle + Oracle Verification)
 
@@ -146,7 +146,7 @@ Goals:
 
 # Milestone 7 - CI Pipeline
 
-Status: PLANNED
+Status: COMPLETED
 Depends on: Milestone 1
 
 Goals:
@@ -157,7 +157,26 @@ Goals:
 - Closes the gap between `ci` already being a defined type in CLAUDE.md's
   Commit Convention and no workflow actually existing yet
 
-# Milestone 8 - Mobile-Responsive Layout + Component Reorganization
+# Milestone 8 - Solidity Dependency Lockfile for contracts/lib/
+
+Status: PLANNED
+Depends on: Milestone 1
+
+Goals:
+- `contracts/lib/` is currently gitignored with no submodules and no
+  lockfile — dependencies are installed ad hoc and pinned only via manual
+  commands in CI/RUNBOOK.md, not a real lockfile
+- v2-periphery specifically cannot be pinned to a tag: the local install
+  came from a branch HEAD (reports version `1.1.0-beta.0` in its
+  `package.json`), but the only real upstream tag is `v1.0.0-beta.0` — no
+  matching tag exists. CI currently installs it from the default branch
+  as an approximation, not a guaranteed-reproducible pin (discovered
+  during Milestone 7's CI setup)
+- Adopt a proper dependency management approach — git submodules,
+  Foundry's `soldeer`, or equivalent — so all of `contracts/lib/`,
+  including v2-periphery, is exactly reproducible across machines and CI
+
+# Milestone 9 - Mobile-Responsive Layout + Component Reorganization
 
 Status: PLANNED
 Depends on: Milestone 4
@@ -168,7 +187,7 @@ Goals:
 - Move loose component files (`App.tsx`, `CreateOrderForm.tsx`,
   `OrderList.tsx`) into `frontend/src/components/`
 
-# Milestone 9 - Multiple Competing Keeper Bots
+# Milestone 10 - Multiple Competing Keeper Bots
 
 Status: PLANNED
 Depends on: Milestone 3
@@ -183,7 +202,7 @@ Goals:
   a keeper-bot and compete for the fee — which has so far only ever been
   tested with a single instance
 
-# Milestone 10 - Live Price Display
+# Milestone 11 - Live Price Display
 
 Status: PLANNED
 Depends on: Milestone 4
@@ -201,7 +220,7 @@ Goals:
   `order-indexer` backfill, so multiple open tabs may need their own
   backoff
 
-# Milestone 11 - Multi-Asset Selector
+# Milestone 12 - Multi-Asset Selector
 
 Status: PLANNED
 Depends on: Milestone 4
@@ -231,7 +250,7 @@ Goals:
   network picker at `docs.chain.link/data-feeds/price-feeds/addresses`
   (select Sepolia) by hand
 
-# Milestone 12 - Full Test Coverage (frontend / order-indexer / keeper-bot)
+# Milestone 13 - Full Test Coverage (frontend / order-indexer / keeper-bot)
 
 Status: PLANNED
 
@@ -251,7 +270,7 @@ Goals:
 - Resolves `.claude/rules/testing.md`'s current note that no testing
   stack has been chosen for these three services
 
-# Milestone 13 - Chainlink Automation as Alternative Trigger Source
+# Milestone 14 - Chainlink Automation as Alternative Trigger Source
 
 Status: PLANNED
 Depends on: Milestone 1, Milestone 3
@@ -267,7 +286,7 @@ Goals:
   implementing it doesn't require redesigning `executeOrder()`'s
   verification logic
 
-# Milestone 14 - Operational Monitoring/Alerting
+# Milestone 15 - Operational Monitoring/Alerting
 
 Status: PLANNED
 Depends on: Milestone 2, Milestone 3
@@ -280,7 +299,7 @@ Goals:
 - Optional hardening — relevant once either service runs somewhere
   long-lived, not required for the Sepolia MVP demo
 
-# Milestone 15 - Partial Order Fills / Additional Condition Types
+# Milestone 16 - Partial Order Fills / Additional Condition Types
 
 Status: PLANNED
 Depends on: Milestone 1
@@ -294,7 +313,7 @@ Goals:
   active order amounts) and its fuzz/invariant tests accordingly
 - Optional product expansion — not required for MVP
 
-# Milestone 16 - Mainnet or L2 Deployment
+# Milestone 17 - Mainnet or L2 Deployment
 
 Status: PLANNED
 Depends on: Milestone 1
