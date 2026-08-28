@@ -258,6 +258,13 @@ Expected variables, to be finalized as each service is built:
 - `GETLOGS_BLOCK_RANGE` — `order-indexer`'s `eth_getLogs` chunk size during
   backfill, to stay under provider block-range limits (e.g. Alchemy's free
   tier caps at 10). Optional, defaults to `10`.
+- `BACKFILL_DELAY_MS` — `order-indexer`'s delay between backfill chunks, to
+  stay under the RPC provider's rate limit proactively. Optional, defaults
+  to `200`.
+- `WATCH_POLL_INTERVAL_MS` — `order-indexer`'s interval between live
+  event-watching polls (plain `eth_getLogs`, not viem's filter-based
+  `watchContractEvent` — Alchemy's free tier doesn't reliably support
+  `eth_newFilter`/`eth_getFilterChanges`). Optional, defaults to `15000`.
 - `INDEXER_URL` — `keeper-bot`'s base URL for `order-indexer`'s REST API.
 - `ETHERSCAN_API_KEY` — used by `RUNBOOK.md`'s "Verify contract on
   Etherscan" workflow (`forge verify-contract`). Free at
