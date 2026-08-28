@@ -12,14 +12,30 @@
 # ==============================
 CLAUDE.local.md
 .claude/settings.local.json
+# Real MCP config — may hold literal server entries/tokens once servers
+# are actually configured (see security.md rule (a)); .mcp.json.example
+# documents the current empty-stub intent instead.
+.mcp.json
+# Claude Code runtime session-lock file (sessionId/pid/timestamp) —
+# regenerated per session, not project config.
+.claude/scheduled_tasks.lock
 
 # ==============================
 # Foundry (contracts/)
 # ==============================
 contracts/cache/
 contracts/out/
+# Previously had "!contracts/broadcast/**/dry-run/" here, intending to
+# track dry-run outputs — but a negation can't re-include files inside an
+# already-excluded parent directory, so it was dead (confirmed nothing
+# under contracts/broadcast/ was ever actually tracked). Removed rather
+# than fixed: dry-run outputs are speculative, regenerated on every local
+# dry-run (RUNBOOK.md's "Deploy contracts" workflow runs one before every
+# real deploy), so tracking them would dirty the tree on every simulation,
+# not just real deployments. The canonical deployment record is the
+# curated, tracked deployments/sepolia.json — not Foundry's raw broadcast
+# logs, real or simulated.
 contracts/broadcast/
-!contracts/broadcast/**/dry-run/
 contracts/dependencies/
 contracts/.env
 
