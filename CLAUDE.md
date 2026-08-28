@@ -98,7 +98,7 @@ duplication over premature abstraction at this stage.
 | Component | Stack |
 |---|---|
 | `contracts/` | Foundry, OpenZeppelin (`IERC20`, `ReentrancyGuard`), Chainlink `AggregatorV3Interface`, Uniswap V2 router interface |
-| `order-indexer/` | Node.js, TypeScript, Fastify (REST API: `GET /orders`, `GET /orders/:id`), viem (`watchContractEvent`), PostgreSQL + Prisma |
+| `order-indexer/` | Node.js, TypeScript, Fastify (REST API: `GET /orders`, `GET /orders/:id`), viem (`eth_getLogs` polling for live events, chunked backfill with 429 backoff), PostgreSQL + Prisma |
 | `keeper-bot/` | Node.js, TypeScript, viem (own operator wallet, separate from user funds) |
 | `frontend/` | React, Vite, TypeScript (pure SPA, no SSR), viem, wagmi |
 
