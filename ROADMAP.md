@@ -68,12 +68,11 @@ whole stack demo-ready and verifiably trustless end-to-end.
 
 **Status: ACTIVE**
 
-With contracts, all three off-chain services, and a live verified
-end-to-end run all complete, my focus ahead of the Module 16 presentation
-is Milestone 6 — rate limiting on `order-indexer`'s public API — since
-it's the easiest remaining milestone to ship: a single Fastify plugin
-registration, the same shape as the CORS fix already applied this
-session, with no new logic and minimal risk.
+With Milestone 6 (rate limiting) confirmed and shipped, my focus ahead of
+the Module 16 presentation is Milestone 7 — the CI pipeline — next in
+difficulty order: mostly wiring already-passing local commands (`forge
+test`, `forge coverage`, `slither`, lint) into GitHub Actions rather than
+writing new application logic.
 
 # Milestone 1 - Contracts (Order Lifecycle + Oracle Verification)
 
@@ -136,7 +135,7 @@ Goals:
 
 # Milestone 6 - Rate Limiting on Order-Indexer's Public API
 
-Status: PLANNED
+Status: COMPLETED
 Depends on: Milestone 2
 
 Goals:
