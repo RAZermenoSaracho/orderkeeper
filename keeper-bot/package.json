@@ -4,10 +4,15 @@
   "private": true,
   "description": "Polls order-indexer for pending orders and triggers executeOrder() on OrderKeeper when checkPriceCondition() confirms a condition is met on-chain.",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "tsx watch --env-file=.env src/index.ts",
     "build": "tsc",
     "start": "node --env-file=.env dist/index.js",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "lint": "eslint ."
   },
   "dependencies": {
@@ -16,9 +21,11 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.9.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
-    "typescript-eslint": "^8.68.0"
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^4.1.11"
   }
 }
