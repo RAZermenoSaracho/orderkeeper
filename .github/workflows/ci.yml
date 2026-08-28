@@ -51,20 +51,14 @@ jobs:
         with:
           version: v1.7.1
 
-      # contracts/lib/ is gitignored with no submodules and no lockfile
-      # (pre-existing, not introduced by this workflow) — dependencies are
-      # reinstalled here, pinned to match what's currently checked in
-      # locally. Three of four have real release tags; v2-periphery's
-      # local copy (package.json reports 1.1.0-beta.0) predates the
-      # repo's only tag (v1.0.0-beta.0), so it's installed from the
-      # default branch as the closest reproducible approximation — worth
-      # revisiting if this ever causes a real version-drift failure.
+      # contracts/dependencies/ is gitignored — reinstalled here from
+      # soldeer.lock, which pins every dependency to an exact commit
+      # (resolved from a tag where one exists, or a specific commit via
+      # --rev for v2-periphery, which has no matching upstream tag for the
+      # version in use). See Milestone 8 in ROADMAP.md for why this
+      # replaced plain `forge install` — that had no lockfile at all.
       - name: Install Solidity dependencies
-        run: |
-          forge install foundry-rs/forge-std@v1.16.2 --no-git
-          forge install OpenZeppelin/openzeppelin-contracts@v5.7.0 --no-git
-          forge install smartcontractkit/chainlink-brownie-contracts@1.3.0 --no-git
-          forge install Uniswap/v2-periphery --no-git
+        run: forge soldeer install
 
       - name: Check formatting
         run: forge fmt --check
@@ -94,11 +88,11 @@ jobs:
       - name: Install Slither
         run: pip install slither-analyzer==0.11.6
 
-      # --filter-paths excludes lib/ findings — CLAUDE.md/api-conventions.md
-      # scope Slither triage to src/ only; lib/ is external dependencies,
-      # out of scope (see contracts/ conventions).
+      # --filter-paths excludes dependencies/ findings — CLAUDE.md scopes
+      # Slither triage to src/ only; dependencies/ is external code, out
+      # of scope (see CLAUDE.md's Conventions).
       - name: Run Slither (src/ only)
-        run: slither src/ --filter-paths "lib/"
+        run: slither src/ --filter-paths "dependencies/"
 
   order-indexer:
     needs: changes
