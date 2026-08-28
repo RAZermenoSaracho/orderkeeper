@@ -20,7 +20,7 @@ contracts/cache/
 contracts/out/
 contracts/broadcast/
 !contracts/broadcast/**/dry-run/
-contracts/lib/
+contracts/dependencies/
 contracts/.env
 
 # Foundry deployment artifacts (keep the top-level deployments/ record instead)
