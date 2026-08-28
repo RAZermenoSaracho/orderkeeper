@@ -136,6 +136,8 @@ jobs:
         run: npx tsc --noEmit
       - name: Lint
         run: npm run lint
+      - name: Test
+        run: npm test
 
   frontend:
     needs: changes
@@ -154,6 +156,8 @@ jobs:
       - run: npm ci
       - name: Lint
         run: npm run lint
+      - name: Test
+        run: npm test
       # No VITE_* env vars needed here: vite build only bundles the code,
       # it doesn't execute it — the runtime "throw if unset" checks in
       # src/config.ts only run in an actual browser, never during build.
