@@ -15,6 +15,7 @@ gets executed automatically or on your behalf.
 - [Deploy contracts](#workflow-deploy-contracts)
 - [Verify contract on Etherscan](#workflow-verify-contract-on-etherscan)
 - [End-to-end oracle loop verification](#workflow-end-to-end-oracle-loop-verification)
+- [Multiple competing keeper-bots](#workflow-multiple-competing-keeper-bots)
 
 Add a new entry here alongside each new `## Workflow: ...` section.
 
@@ -332,3 +333,88 @@ curl -s "http://localhost:3001/orders?status=executed"   # should now include it
   `order-indexer/.env` needs an explicit username under Homebrew
   Postgres's peer/trust auth — see the comment in that file's
   `.env.example`.
+
+## Workflow: Multiple competing keeper-bots
+
+Proves the "permissionless execution" premise for real — that anyone can
+run a `keeper-bot` and compete for the keeper fee — by running two real
+instances against the same live deployment and confirming the existing
+race-condition handling (`keeper.ts`'s `EXPECTED_RACE_ERRORS`) holds up
+under actual concurrent competition, not just one bot's own retry logic.
+See ROADMAP.md's Milestone 10.
+
+### Prerequisites
+
+- [ ] Everything from **Workflow: End-to-end oracle loop verification**
+      above already working (`order-indexer` + one `keeper-bot` instance).
+- [ ] A **second** operator wallet, separate from the first `keeper-bot`'s
+      key and from the `contracts/` deployer key — three distinct keys in
+      total, never shared (CLAUDE.md Environment Variables). Funded with
+      ~0.01 Sepolia ETH, same as the first.
+- [ ] A second env file for it: `keeper-bot/.env.local` (already covered
+      by `.gitignore`'s `.env.local` pattern — don't invent a new
+      filename without checking it's actually ignored first). Same
+      contents as `keeper-bot/.env`, except `PRIVATE_KEY` is the second
+      wallet's key.
+
+### Step 1 — Start both keeper-bot instances
+
+In two separate terminals:
+
+```shell
+cd keeper-bot
+npm run dev                                        # instance 1, uses .env
+```
+
+```shell
+cd keeper-bot
+tsx watch --env-file=.env.local src/index.ts        # instance 2, uses .env.local
+```
+
+- [ ] Both logs show a different `[keeper-bot] Operator: 0x...` address.
+- [ ] Both show `Watching OrderKeeper at` the same contract address.
+
+### Step 2 — Create a real test order
+
+Same as Step 3 in the end-to-end workflow above — a fresh order with a
+trivially-true condition so both instances see it as executable on their
+very next poll.
+
+### Step 3 — Watch both terminals for the race
+
+Within one or two 15-second poll cycles:
+
+- [ ] **One** instance logs `executeOrder(N) submitted: 0x...`.
+- [ ] The **other** instance logs `executeOrder(N) reverted (OrderNotPending)
+      — expected race, retrying next cycle` — this is the actual thing
+      this workflow exists to prove, not a failure.
+
+If both instances happen to submit in the same block window before either
+transaction lands, you may instead see the loser's revert come from a
+mined transaction rather than the pre-broadcast simulation (still caught
+by the same `EXPECTED_RACE_ERRORS` handling) — either shape confirms the
+behavior.
+
+### Step 4 — Confirm final state
+
+```shell
+curl -s "http://localhost:3001/orders?status=executed"
+```
+
+- [ ] The order shows exactly one execution — `executedAtTx` resolves on
+      Sepolia Etherscan to whichever instance actually won, and the
+      keeper fee went to that instance's operator address, not the
+      loser's.
+
+### Troubleshooting
+
+- **Neither instance ever logs a race** — the two poll cycles probably
+  landed too far apart (e.g. started several seconds apart) for both to
+  see the order as pending on the same cycle. Restart both closer
+  together, or lengthen the order's window by using a condition that
+  stays true for longer before either bot's first poll.
+- **Both instances submit and both succeed** — shouldn't happen
+  (`executeOrder()` flips the order to `Executed` on the first success,
+  which the second call's simulation should see) — if it does, that's a
+  real bug in the contract's state transition, not an expected race; stop
+  and investigate rather than re-running.
