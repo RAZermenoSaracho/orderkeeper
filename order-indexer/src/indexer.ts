@@ -5,11 +5,9 @@ import { prisma } from "./db.js";
 import { orderKeeperEventsAbi } from "./abi.js";
 
 // A minimal shape for what this module actually reads off a decoded log —
-// rather than hand-replicating viem's full Log<> generic signature (which
-// varies by call site: watchContractEvent's onLogs vs getLogs's return
-// type are structurally identical but not the same TS type). Both real
-// call sites below satisfy this shape; args is validated at the point
-// each handler destructures it.
+// rather than hand-replicating viem's full Log<> generic signature.
+// getLogs's return type satisfies this shape; args is validated at the
+// point each handler destructures it.
 interface OrderKeeperLog {
   eventName: "OrderCreated" | "OrderExecuted" | "OrderCancelled";
   blockNumber: bigint;
@@ -21,15 +19,16 @@ interface OrderKeeperLog {
 const CHECKPOINT_ID = 1;
 
 // eth_getLogs block-range limit per call, chunked to stay under it during
-// backfill. Discovered the hard way: Alchemy's free tier caps eth_getLogs
-// at a 10-block range — a single unchunked call across any gap wider than
-// that (e.g. after the indexer has been down for a while) fails outright.
-// Overridable via env for providers with a larger (or no) limit; 10 is the
-// safe default. Live watching (below) isn't affected in normal operation —
-// each poll only spans the tiny gap since the last poll — but if the
+// both backfill and live polling (see syncBlockRange). Discovered the hard
+// way: Alchemy's free tier caps eth_getLogs at a 10-block range — a single
+// unchunked call across any gap wider than that (e.g. after the indexer
+// has been down for a while) fails outright. Overridable via env for
+// providers with a larger (or no) limit; 10 is the safe default. Live
+// polling isn't affected in normal operation — each tick only spans the
+// tiny gap since the last poll (usually a single chunk) — but if the
 // process stalls without restarting for long enough to reopen a similar
-// gap, that single poll could still hit the same limit; watchContractEvent
-// logs it via onError rather than crashing, and picks back up next poll.
+// gap, a single watchPoll tick could still need multiple chunks; watchPoll
+// logs the error and picks back up next tick rather than crashing.
 const GETLOGS_BLOCK_RANGE = BigInt(process.env.GETLOGS_BLOCK_RANGE ?? 10);
 
 // Proactive throttle between backfill chunks, on top of chain.ts's
@@ -40,6 +39,22 @@ const GETLOGS_BLOCK_RANGE = BigInt(process.env.GETLOGS_BLOCK_RANGE ?? 10);
 // how often backfill needs it in the first place. Overridable via env for
 // providers with a higher (or no) rate limit; 0 disables it.
 const BACKFILL_DELAY_MS = Number(process.env.BACKFILL_DELAY_MS ?? 200);
+
+// How often live watching re-checks the chain for new blocks. Deliberately
+// plain eth_getLogs-based polling (via syncBlockRange, the same function
+// backfill uses) rather than viem's watchContractEvent: that defaults to
+// eth_newFilter + eth_getFilterChanges, and Alchemy's free tier creates
+// the filter successfully but then rejects eth_getFilterChanges on it
+// (InvalidParamsRpcError) — a load-balanced/serverless backend that
+// doesn't reliably preserve filter state across requests. viem only
+// reinitializes the filter on InvalidInputRpcError, not
+// InvalidParamsRpcError, so that specific failure mode repeats forever
+// with no recovery. `poll: true` does not fix this — pollContractEvent()
+// still tries createContractEventFilter first regardless; it only falls
+// back to plain getLogs if filter *creation* throws, which it doesn't
+// here. Polling via eth_getLogs unconditionally, like backfill already
+// does successfully, sidesteps eth_newFilter entirely.
+const WATCH_POLL_INTERVAL_MS = Number(process.env.WATCH_POLL_INTERVAL_MS ?? 15_000);
 
 /// Starts the indexer: backfills any blocks missed since the last
 /// checkpoint (or, on a truly fresh install with no checkpoint, starts
@@ -61,31 +76,39 @@ export async function startIndexer(orderKeeperAddress: Address): Promise<void> {
 
   if (fromBlock <= currentBlock) {
     console.log(`Backfilling ${currentBlock - fromBlock + 1n} blocks (${fromBlock} to ${currentBlock})...`);
-    await backfill(orderKeeperAddress, fromBlock, currentBlock);
+    await syncBlockRange(orderKeeperAddress, fromBlock, currentBlock);
     console.log("Backfill complete.");
   }
 
-  publicClient.watchContractEvent({
-    address: orderKeeperAddress,
-    abi: orderKeeperEventsAbi,
-    onLogs: async (logs) => {
-      for (const log of sortLogs(logs as unknown as OrderKeeperLog[])) {
-        await processLog(log);
-      }
-    },
-    onError: (error) => {
-      console.error("watchContractEvent error:", error);
-    },
-  });
-  console.log("Watching for new OrderKeeper events...");
+  console.log(`Watching for new OrderKeeper events (polling every ${WATCH_POLL_INTERVAL_MS / 1000}s)...`);
+  setInterval(() => {
+    watchPoll(orderKeeperAddress).catch((error) => {
+      console.error("watch poll error:", error);
+    });
+  }, WATCH_POLL_INTERVAL_MS);
+}
+
+async function watchPoll(orderKeeperAddress: Address): Promise<void> {
+  const currentBlock = await publicClient.getBlockNumber();
+  const checkpoint = await prisma.indexerState.findUnique({ where: { id: CHECKPOINT_ID } });
+  // A checkpoint always exists by the time this runs — startIndexer's
+  // initial sync (above) processes at least the current block even with
+  // no prior checkpoint, which itself calls advanceCheckpoint().
+  const fromBlock = (checkpoint?.lastProcessedBlock ?? currentBlock) + 1n;
+
+  if (fromBlock <= currentBlock) {
+    await syncBlockRange(orderKeeperAddress, fromBlock, currentBlock);
+  }
 }
 
 // Progress is logged for the first chunk immediately, then periodically —
 // not every chunk, since a large gap can mean thousands of them — so a
-// long backfill never goes more than a few seconds without visible output.
+// long sync never goes more than a few seconds without visible output.
+// Used both for the initial backfill (a potentially large range) and every
+// live watchPoll tick (normally a single, tiny chunk).
 const PROGRESS_LOG_EVERY_N_CHUNKS = 25;
 
-async function backfill(orderKeeperAddress: Address, fromBlock: bigint, toBlock: bigint): Promise<void> {
+async function syncBlockRange(orderKeeperAddress: Address, fromBlock: bigint, toBlock: bigint): Promise<void> {
   let chunkIndex = 0;
   for (let chunkStart = fromBlock; chunkStart <= toBlock; chunkStart += GETLOGS_BLOCK_RANGE) {
     const chunkEndCandidate = chunkStart + GETLOGS_BLOCK_RANGE - 1n;
@@ -94,7 +117,7 @@ async function backfill(orderKeeperAddress: Address, fromBlock: bigint, toBlock:
 
     const logs = await getLogsChunk(orderKeeperAddress, chunkStart, chunkEnd);
     if (logs.length > 0) {
-      console.log(`Backfill: blocks ${chunkStart}-${chunkEnd} — found ${logs.length} event(s)`);
+      console.log(`Sync: blocks ${chunkStart}-${chunkEnd} — found ${logs.length} event(s)`);
     }
 
     for (const log of sortLogs(logs as unknown as OrderKeeperLog[])) {
@@ -102,12 +125,12 @@ async function backfill(orderKeeperAddress: Address, fromBlock: bigint, toBlock:
     }
 
     // Advanced per chunk, not just once at the end: if the process is
-    // interrupted mid-backfill, it resumes from the last completed chunk
+    // interrupted mid-sync, it resumes from the last completed chunk
     // instead of redoing the whole gap.
     await advanceCheckpoint(chunkEnd);
 
     if (chunkIndex === 1 || chunkIndex % PROGRESS_LOG_EVERY_N_CHUNKS === 0 || chunkEnd === toBlock) {
-      console.log(`Backfill progress: block ${chunkEnd}/${toBlock} (${toBlock - chunkEnd} blocks remaining)`);
+      console.log(`Sync progress: block ${chunkEnd}/${toBlock} (${toBlock - chunkEnd} blocks remaining)`);
     }
 
     if (BACKFILL_DELAY_MS > 0 && chunkEnd < toBlock) {
@@ -130,11 +153,11 @@ async function getLogsChunk(orderKeeperAddress: Address, fromBlock: bigint, toBl
   } catch (error) {
     if (error instanceof HttpRequestError && error.status === 429) {
       throw new Error(
-        `Backfill's eth_getLogs for blocks ${fromBlock}-${toBlock} kept hitting ` +
-          `429 Too Many Requests even after retrying with backoff (see chain.ts). ` +
-          `The RPC provider's rate limit is too low for this backfill gap — try a ` +
-          `higher BACKFILL_DELAY_MS, a paid RPC tier, or narrowing the gap by ` +
-          `restarting the indexer more often.`,
+        `eth_getLogs for blocks ${fromBlock}-${toBlock} kept hitting 429 Too Many ` +
+          `Requests even after retrying with backoff (see chain.ts). The RPC ` +
+          `provider's rate limit is too low for this range — try a higher ` +
+          `BACKFILL_DELAY_MS, a paid RPC tier, or (during initial backfill) ` +
+          `narrowing the gap by restarting the indexer more often.`,
         { cause: error },
       );
     }
