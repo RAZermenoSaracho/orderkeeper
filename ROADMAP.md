@@ -205,7 +205,7 @@ Goals:
 
 # Milestone 11 - Live Price Display
 
-Status: PLANNED
+Status: COMPLETED
 Depends on: Milestone 4
 
 Goals:
