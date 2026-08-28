@@ -16,6 +16,7 @@ gets executed automatically or on your behalf.
 - [Verify contract on Etherscan](#workflow-verify-contract-on-etherscan)
 - [End-to-end oracle loop verification](#workflow-end-to-end-oracle-loop-verification)
 - [Multiple competing keeper-bots](#workflow-multiple-competing-keeper-bots)
+- [Register additional price feeds](#workflow-register-additional-price-feeds)
 
 Add a new entry here alongside each new `## Workflow: ...` section.
 
@@ -418,3 +419,101 @@ curl -s "http://localhost:3001/orders?status=executed"
   which the second call's simulation should see) — if it does, that's a
   real bug in the contract's state transition, not an expected race; stop
   and investigate rather than re-running.
+
+## Workflow: Register additional price feeds
+
+Registers Chainlink feeds for the four additional assets the frontend's
+multi-asset selector offers alongside WETH — `addPriceFeed()` is
+`onlyOwner`, so these are real transactions from the deployer wallet, not
+something to run automatically. See ROADMAP.md's Milestone 12.
+
+Every address below was verified directly against Sepolia before being
+used here — `eth_getCode` to confirm it's a real contract, then `symbol()`
+(for the three real tokens) or `description()` (for the feeds) to confirm
+it's the right one. Don't add a new asset to `frontend/src/config.ts`'s
+`SUPPORTED_ASSETS` without doing the same — search results and doc pages
+have repeatedly returned mainnet addresses mislabeled as Sepolia earlier
+in this project's history; only an on-chain check is trustworthy.
+
+| Asset | `asset` address (lookup key) | Feed address |
+|---|---|---|
+| BTC | `0x505e65d08c67660dc618072422e9c78053c261e9` (synthetic — no canonical Sepolia BTC token exists; this is `keccak256("BTC")`'s last 20 bytes, same convention as Foundry's `makeAddr()`) | `0x1b44F3514812d835EB1BDB0acB33d3fA3351Ee43` |
+| LINK | `0x779877A7B0D9E8603169DdbD7836e478b4624789` (real Sepolia LINK, Chainlink's own testnet faucet token) | `0xc59E3633BAAC79493d908e63626716e204A45EdF` |
+| USDC | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` (real Sepolia USDC, Circle's official testnet deployment) | `0xA2F78ab2355fe2f984D808B5CeE7FD0A93D5270E` |
+| DAI | `0xff34b3d4aee8ddcd6f9afffb6fe49bd371b8a357` (a Sepolia token with `symbol() == "DAI"` — no single canonical issuer for Sepolia DAI, treat as "a" DAI-like token, not "the" one) | `0x14866185B1962B63C3Ea9E03Bc1da838bab34C19` |
+
+Recall `order.asset` is purely an oracle lookup key — the contract never
+calls it, never checks it's a real token (see CLAUDE.md's Design
+Decisions on `order.asset` being oracle-only). The `asset` addresses
+above only need to be stable and unique, not "real" in any deeper sense;
+BTC's is synthetic for exactly that reason.
+
+### Prerequisites
+
+- [ ] `contracts/.env` filled in, with `PRIVATE_KEY` set to the **deployer
+      key** — `addPriceFeed()` is `onlyOwner`, and the deployer is the
+      contract's owner.
+- [ ] Deployer wallet has enough Sepolia ETH for four small transactions'
+      gas.
+
+### Register each feed
+
+```shell
+cd contracts
+CONTRACT=0x2d065b6a75A207e73Cc9f76953A5886B250336FD
+
+# BTC
+cast send $CONTRACT "addPriceFeed(address,address)" \
+  0x505e65d08c67660dc618072422e9c78053c261e9 \
+  0x1b44F3514812d835EB1BDB0acB33d3fA3351Ee43 \
+  --rpc-url sepolia --private-key $PRIVATE_KEY
+
+# LINK
+cast send $CONTRACT "addPriceFeed(address,address)" \
+  0x779877A7B0D9E8603169DdbD7836e478b4624789 \
+  0xc59E3633BAAC79493d908e63626716e204A45EdF \
+  --rpc-url sepolia --private-key $PRIVATE_KEY
+
+# USDC
+cast send $CONTRACT "addPriceFeed(address,address)" \
+  0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238 \
+  0xA2F78ab2355fe2f984D808B5CeE7FD0A93D5270E \
+  --rpc-url sepolia --private-key $PRIVATE_KEY
+
+# DAI
+cast send $CONTRACT "addPriceFeed(address,address)" \
+  0xff34b3d4aee8ddcd6f9afffb6fe49bd371b8a357 \
+  0x14866185B1962B63C3Ea9E03Bc1da838bab34C19 \
+  --rpc-url sepolia --private-key $PRIVATE_KEY
+```
+
+- [ ] All four transactions show `status: 1 (success)`.
+
+### Confirm each feed is live
+
+```shell
+cast call $CONTRACT "getAssetPrice(address)(uint256)" \
+  0x505e65d08c67660dc618072422e9c78053c261e9 --rpc-url sepolia   # BTC
+cast call $CONTRACT "getAssetPrice(address)(uint256)" \
+  0x779877A7B0D9E8603169DdbD7836e478b4624789 --rpc-url sepolia   # LINK
+cast call $CONTRACT "getAssetPrice(address)(uint256)" \
+  0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238 --rpc-url sepolia   # USDC
+cast call $CONTRACT "getAssetPrice(address)(uint256)" \
+  0xff34b3d4aee8ddcd6f9afffb6fe49bd371b8a357 --rpc-url sepolia   # DAI
+```
+
+- [ ] Each returns a plausible non-zero, 18-decimal price rather than
+      reverting with `UnsupportedAsset`.
+- [ ] In the frontend (`npm run dev` in `frontend/`), the Create Order
+      form's Asset dropdown shows a live price (not "Price unavailable")
+      for each of BTC / LINK / USDC / DAI once selected.
+
+### Troubleshooting
+
+- **Reverts with `UnsupportedAsset`** — the transaction for that asset
+  either didn't land yet or used the wrong `asset` address; double-check
+  against the table above, not from memory.
+- **`addPriceFeed` reverts with an ownership error** — `PRIVATE_KEY` in
+  `contracts/.env` isn't the deployer key. Check against
+  `deployments/sepolia.json`'s deployment record, or `cast call $CONTRACT
+  "owner()(address)" --rpc-url sepolia`.
