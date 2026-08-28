@@ -52,3 +52,29 @@ oracle loop verification" workflow; this entry tracks the underlying fix
 (re-seed liquidity) needed before Module 16.
 
 ---
+
+### [OPEN] Sepolia DAI feed is registered but intermittently stale
+
+- **Component**: contracts / frontend
+- **Discovered**: 2026-08-28 — while verifying Milestone 12's (Multi-Asset
+  Selector) newly-registered feeds against the live deployed contract
+- **Status**: open
+
+DAI's Sepolia Chainlink feed (`0x14866185B1962B63C3Ea9E03Bc1da838bab34C19`)
+is correctly registered via `addPriceFeed()`, but `latestRoundData()`'s
+`updatedAt` was found ~3.4 hours stale at time of testing, against
+`OrderKeeper`'s 1-hour `PRICE_STALENESS_THRESHOLD` — `getAssetPrice()`
+correctly reverts with `InvalidPrice()` in that state. This is the
+staleness guard working as designed, not a bug — same class of limitation
+as the WETH/DemoUSDC pool drift above: low testnet activity means the
+feed's own DON doesn't update it as reliably as a mainnet feed would.
+No fix is available short of finding a more actively-maintained Sepolia
+DAI feed, and none appears to exist — there's no canonical DAI issuer on
+Sepolia to begin with (see `RUNBOOK.md`'s "Register additional price
+feeds" workflow, which already notes this address is "a" DAI-like token,
+not "the" one). Not something we're going to resolve; documented as a
+known limitation. DAI was removed from `frontend/src/config.ts`'s
+`SUPPORTED_ASSETS` for this reason — it stays registered on-chain, just
+not offered as a selectable option in the MVP demo.
+
+---
