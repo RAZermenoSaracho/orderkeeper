@@ -70,10 +70,10 @@ whole stack demo-ready and verifiably trustless end-to-end.
 
 With contracts, all three off-chain services, and a live verified
 end-to-end run all complete, my focus ahead of the Module 16 presentation
-is Milestone 6 — the multi-asset selector — since it's the most visible
-gap between what the contract already supports and what the frontend
-exposes. Milestones 7 through 9 round out the remaining pre-presentation
-polish behind it.
+is Milestone 6 — rate limiting on `order-indexer`'s public API — since
+it's the easiest remaining milestone to ship: a single Fastify plugin
+registration, the same shape as the CORS fix already applied this
+session, with no new logic and minimal risk.
 
 # Milestone 1 - Contracts (Order Lifecycle + Oracle Verification)
 
@@ -134,7 +134,75 @@ Goals:
 - Exercise the slippage guard for real: a 100 bps order reverted with
   `INSUFFICIENT_OUTPUT_AMOUNT`, a 3000 bps order executed successfully
 
-# Milestone 6 - Multi-Asset Selector
+# Milestone 6 - Rate Limiting on Order-Indexer's Public API
+
+Status: PLANNED
+Depends on: Milestone 2
+
+Goals:
+- Add `@fastify/rate-limit` (or equivalent) to `order-indexer`'s
+  `GET /orders` endpoint
+- Prevent abuse/DoS on a service that has no auth and is intended to run
+  publicly
+
+# Milestone 7 - CI Pipeline
+
+Status: PLANNED
+Depends on: Milestone 1
+
+Goals:
+- Add a GitHub Actions workflow running `forge test`, `forge coverage`,
+  and `slither` on every push/PR
+- Add lint checks for `order-indexer` / `keeper-bot` / `frontend` to the
+  same workflow
+- Closes the gap between `ci` already being a defined type in CLAUDE.md's
+  Commit Convention and no workflow actually existing yet
+
+# Milestone 8 - Mobile-Responsive Layout + Component Reorganization
+
+Status: PLANNED
+Depends on: Milestone 4
+
+Goals:
+- Add responsive CSS to `frontend/src/index.css` (existing plain-CSS
+  approach, no framework)
+- Move loose component files (`App.tsx`, `CreateOrderForm.tsx`,
+  `OrderList.tsx`) into `frontend/src/components/`
+
+# Milestone 9 - Multiple Competing Keeper Bots
+
+Status: PLANNED
+Depends on: Milestone 3
+
+Goals:
+- Run a second `keeper-bot` instance in parallel against the same
+  deployment, with its own operator key
+- Confirm the existing race-condition handling (visible in logs as
+  "expected race, retrying next cycle") holds up under real concurrent
+  competition, not just one bot's own retry logic
+- Validates the "permissionless execution" premise — that anyone can run
+  a keeper-bot and compete for the fee — which has so far only ever been
+  tested with a single instance
+
+# Milestone 10 - Live Price Display
+
+Status: PLANNED
+Depends on: Milestone 4
+
+Goals:
+- Poll the contract's own `getAssetPrice()` for the selected asset every
+  ~15s via `eth_call`; show a "Last updated Xs ago" label
+- Chosen over reading Chainlink's `AggregatorV3Interface` directly:
+  `getAssetPrice()` is exactly what `executeOrder()` evaluates (staleness
+  checks and decimal normalization included), so the display can never
+  disagree with what the contract would actually enforce
+- Tradeoff to track: one additional `eth_call` every ~15s per selected
+  asset, on top of `order-indexer`'s and `keeper-bot`'s own polling —
+  this session already hit Alchemy's free-tier rate limit once during
+  `order-indexer` backfill, so multiple open tabs may need their own
+  backoff
+
+# Milestone 11 - Multi-Asset Selector
 
 Status: PLANNED
 Depends on: Milestone 4
@@ -164,36 +232,7 @@ Goals:
   network picker at `docs.chain.link/data-feeds/price-feeds/addresses`
   (select Sepolia) by hand
 
-# Milestone 7 - Live Price Display
-
-Status: PLANNED
-Depends on: Milestone 4
-
-Goals:
-- Poll the contract's own `getAssetPrice()` for the selected asset every
-  ~15s via `eth_call`; show a "Last updated Xs ago" label
-- Chosen over reading Chainlink's `AggregatorV3Interface` directly:
-  `getAssetPrice()` is exactly what `executeOrder()` evaluates (staleness
-  checks and decimal normalization included), so the display can never
-  disagree with what the contract would actually enforce
-- Tradeoff to track: one additional `eth_call` every ~15s per selected
-  asset, on top of `order-indexer`'s and `keeper-bot`'s own polling —
-  this session already hit Alchemy's free-tier rate limit once during
-  `order-indexer` backfill, so multiple open tabs may need their own
-  backoff
-
-# Milestone 8 - Mobile-Responsive Layout + Component Reorganization
-
-Status: PLANNED
-Depends on: Milestone 4
-
-Goals:
-- Add responsive CSS to `frontend/src/index.css` (existing plain-CSS
-  approach, no framework)
-- Move loose component files (`App.tsx`, `CreateOrderForm.tsx`,
-  `OrderList.tsx`) into `frontend/src/components/`
-
-# Milestone 9 - Full Test Coverage (frontend / order-indexer / keeper-bot)
+# Milestone 12 - Full Test Coverage (frontend / order-indexer / keeper-bot)
 
 Status: PLANNED
 
@@ -212,6 +251,62 @@ Goals:
 - `contracts/` is already at 100% coverage — no work needed there
 - Resolves `.claude/rules/testing.md`'s current note that no testing
   stack has been chosen for these three services
+
+# Milestone 13 - Chainlink Automation as Alternative Trigger Source
+
+Status: PLANNED
+Depends on: Milestone 1, Milestone 3
+
+Goals:
+- Implement Chainlink Automation (`checkUpkeep()` / `performUpkeep()`) as
+  an alternative to the self-run `keeper-bot`
+- Register and run a real Automation upkeep against the deployed contract
+- Compare in practice against the self-run `keeper-bot`: the uptime vs.
+  transparency tradeoff already documented in CLAUDE.md/README.md's
+  Design Decisions, but never tested concretely
+- This is the "reversible decision" CLAUDE.md/README.md already flag —
+  implementing it doesn't require redesigning `executeOrder()`'s
+  verification logic
+
+# Milestone 14 - Operational Monitoring/Alerting
+
+Status: PLANNED
+Depends on: Milestone 2, Milestone 3
+
+Goals:
+- Add uptime/health monitoring for `order-indexer` and `keeper-bot` in a
+  persistent (non-local) deployment
+- Add alerting on downtime (e.g. missed poll cycles, failed RPC/DB
+  connections)
+- Optional hardening — relevant once either service runs somewhere
+  long-lived, not required for the Sepolia MVP demo
+
+# Milestone 15 - Partial Order Fills / Additional Condition Types
+
+Status: PLANNED
+Depends on: Milestone 1
+
+Goals:
+- Support partial fills of an order's deposited amount, rather than
+  all-or-nothing execution
+- Add condition types beyond `GreaterOrEqual` / `LessOrEqual` (e.g. range
+  conditions)
+- Requires reworking the solvency invariant (contract balance == sum of
+  active order amounts) and its fuzz/invariant tests accordingly
+- Optional product expansion — not required for MVP
+
+# Milestone 16 - Mainnet or L2 Deployment
+
+Status: PLANNED
+Depends on: Milestone 1
+
+Goals:
+- Deploy to mainnet or an L2 (Arbitrum, Base, or Optimism)
+- Real fix for the testnet pool/oracle drift issue documented in
+  ISSUES.md — real DEX pools stay arbitrage-aligned, unlike an
+  unarbitraged testnet pool
+- Ties into README.md's "real income potential" framing — a live keeper
+  fee only means something against real liquidity and real funds
 
 ---
 
