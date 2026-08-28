@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
-import { BaseError, parseEther, parseUnits } from 'viem'
+import { useEffect, useState } from 'react'
+import { useReadContract, useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
+import { BaseError, formatUnits, parseEther, parseUnits } from 'viem'
 import { orderKeeperAbi } from '../abi.ts'
 import { defaultAssetAddress, orderKeeperAddress } from '../config.ts'
 
@@ -12,6 +12,55 @@ const CONDITIONS = [
 const PRICE_DECIMALS = 18
 const DEFAULT_MAX_SLIPPAGE_BPS = '100'
 const DEFAULT_EXPIRY_HOURS = '24'
+const PRICE_POLL_INTERVAL_MS = 15_000
+
+// Ticks once a second so the "Xs ago" label stays live between polls,
+// without re-fetching anything itself.
+function useSecondsAgo(since: number | undefined): number | null {
+  const [, tick] = useState(0)
+
+  useEffect(() => {
+    if (!since) return
+    const interval = setInterval(() => tick((n) => n + 1), 1_000)
+    return () => clearInterval(interval)
+  }, [since])
+
+  if (!since) return null
+  return Math.max(0, Math.floor((Date.now() - since) / 1_000))
+}
+
+function LivePrice() {
+  const {
+    data: price,
+    error,
+    dataUpdatedAt,
+  } = useReadContract({
+    address: orderKeeperAddress,
+    abi: orderKeeperAbi,
+    functionName: 'getAssetPrice',
+    args: [defaultAssetAddress],
+    query: {
+      // Reads exactly what executeOrder() would evaluate (staleness
+      // checks and decimal normalization included) via the contract's
+      // own getAssetPrice(), rather than reading Chainlink directly, so
+      // this can never show a price the contract itself would disagree
+      // with. See ROADMAP.md's Live Price Display milestone.
+      refetchInterval: PRICE_POLL_INTERVAL_MS,
+    },
+  })
+  const secondsAgo = useSecondsAgo(dataUpdatedAt || undefined)
+
+  if (error) {
+    return <span className="form-static">Price unavailable</span>
+  }
+
+  return (
+    <span className="form-static">
+      {price !== undefined ? `$${Number(formatUnits(price, PRICE_DECIMALS)).toFixed(2)}` : 'Loading...'}
+      {secondsAgo !== null && <span className="price-updated"> · updated {secondsAgo}s ago</span>}
+    </span>
+  )
+}
 
 function CreateOrderForm() {
   const [condition, setCondition] = useState<0 | 1>(0)
@@ -80,6 +129,11 @@ function CreateOrderForm() {
         <span className="form-static">
           WETH ({defaultAssetAddress.slice(0, 6)}...{defaultAssetAddress.slice(-4)})
         </span>
+      </div>
+
+      <div className="form-row">
+        <span className="form-label">Live price</span>
+        <LivePrice />
       </div>
 
       <label className="form-row">
