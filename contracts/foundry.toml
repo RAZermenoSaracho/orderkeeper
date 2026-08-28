@@ -1,7 +1,7 @@
 [profile.default]
 src = "src"
 out = "out"
-libs = ["lib"]
+libs = ["dependencies"]
 solc = "0.8.26"
 optimizer = true
 optimizer_runs = 200
@@ -9,5 +9,11 @@ fs_permissions = [{ access = "read-write", path = "../deployments" }]
 
 [rpc_endpoints]
 sepolia = "${RPC_URL}"
+
+[dependencies]
+forge-std = "1.16.2"
+openzeppelin-contracts = { version = "5.7.0", git = "https://github.com/OpenZeppelin/openzeppelin-contracts.git", tag = "v5.7.0" }
+chainlink-brownie-contracts = { version = "1.3.0", git = "https://github.com/smartcontractkit/chainlink-brownie-contracts.git", tag = "1.3.0" }
+v2-periphery = { version = "1.1.0-beta.0", git = "https://github.com/Uniswap/v2-periphery.git", rev = "ed24991304291297c3b4a52818d02f46a17aa9a2" }
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

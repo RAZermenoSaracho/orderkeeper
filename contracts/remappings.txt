@@ -1,4 +1,4 @@
-@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
-@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/
-@uniswap/v2-periphery/=lib/v2-periphery/
-forge-std/=lib/forge-std/src/
+@chainlink/contracts/=dependencies/chainlink-brownie-contracts-1.3.0/contracts/
+@openzeppelin/contracts/=dependencies/openzeppelin-contracts-5.7.0/contracts/
+@uniswap/v2-periphery/=dependencies/v2-periphery-1.1.0-beta.0/
+forge-std/=dependencies/forge-std-1.16.2/src/

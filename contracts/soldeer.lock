@@ -1,0 +1,24 @@
+[[dependencies]]
+name = "chainlink-brownie-contracts"
+version = "1.3.0"
+git = "https://github.com/smartcontractkit/chainlink-brownie-contracts.git"
+rev = "5cb41fbc9b525338b6098da5ea7dd0b7e92f89e4"
+
+[[dependencies]]
+name = "forge-std"
+version = "1.16.2"
+url = "https://soldeer-revisions.s3.amazonaws.com/forge-std/1_16_2_03-07-2026_07:37:45_forge-std-1.16.zip"
+checksum = "405dccc9d60d753f6abc412b4adf0359f4390f65dbadbbb277a12b4946ed8969"
+integrity = "5fb4325b60d7d4194bd0481e2f94398cf1d9c6561dd12a66fb2748ef4a68205f"
+
+[[dependencies]]
+name = "openzeppelin-contracts"
+version = "5.7.0"
+git = "https://github.com/OpenZeppelin/openzeppelin-contracts.git"
+rev = "cab19933c33c2ad1d4c7a84864a3601dddfd16f3"
+
+[[dependencies]]
+name = "v2-periphery"
+version = "1.1.0-beta.0"
+git = "https://github.com/Uniswap/v2-periphery.git"
+rev = "ed24991304291297c3b4a52818d02f46a17aa9a2"
