@@ -57,7 +57,7 @@ Custodies order funds, verifies price conditions on-chain, executes swaps.
 
 ### 2. `order-indexer/` — Event listener + read API
 Listens for `OrderCreated` / `OrderExecuted` / `OrderCancelled` events, persists them, and exposes them over a REST API (e.g. `GET /orders`, `GET /orders/:id`) so the frontend and keeper don't need to query the chain directly on every read.
-- **Stack**: Node.js, TypeScript, Fastify (REST API), viem (`watchContractEvent` over WebSocket), PostgreSQL + Prisma
+- **Stack**: Node.js, TypeScript, Fastify (REST API), viem (`eth_getLogs` polling for live events, chunked backfill with 429 backoff), PostgreSQL + Prisma
 - **Read-only**: never sends transactions, never holds a private key — smaller attack surface by design. It only serves reads of indexed history; it never sits in the write path — order creation and cancellation go directly from the frontend to the contract
 
 ### 3. `keeper-bot/` — Executor
