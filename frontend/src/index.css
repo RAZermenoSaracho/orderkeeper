@@ -114,8 +114,13 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
   padding: 16px 24px;
   border-bottom: 1px solid var(--border);
+  @media (max-width: 480px) {
+    padding: 12px 16px;
+  }
 }
 
 header h1 {
@@ -125,6 +130,8 @@ header h1 {
 
 main {
   flex: 1;
+  padding: 0 16px;
+  box-sizing: border-box;
 }
 
 button {
@@ -145,7 +152,8 @@ button:disabled {
 .wallet-info {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
 }
 
 .wallet-balance,
@@ -158,12 +166,18 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-width: 420px;
+  width: 420px;
+  max-width: 100%;
   margin: 32px auto;
   padding: 24px;
   border: 1px solid var(--border);
   border-radius: 8px;
+  box-sizing: border-box;
   text-align: left;
+  @media (max-width: 480px) {
+    margin: 20px auto;
+    padding: 16px;
+  }
 }
 
 .create-order-form h2 {
@@ -190,12 +204,14 @@ button:disabled {
 
 .create-order-form input,
 .create-order-form select {
+  width: 100%;
   font: inherit;
   padding: 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg);
   color: var(--text-h);
+  box-sizing: border-box;
 }
 
 .form-error {
@@ -207,24 +223,32 @@ button:disabled {
 .form-success {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   font-size: 14px;
   margin: 0;
 }
 
 .order-list {
-  max-width: 420px;
+  width: 420px;
+  max-width: 100%;
   margin: 0 auto 32px;
   padding: 24px;
   border: 1px solid var(--border);
   border-radius: 8px;
+  box-sizing: border-box;
   text-align: left;
+  @media (max-width: 480px) {
+    padding: 16px;
+  }
 }
 
 .order-list-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .order-list-header h2 {
@@ -254,7 +278,9 @@ button:disabled {
 .order-item-row {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  word-break: break-word;
 }
 
 .order-item-row:first-child {
@@ -266,6 +292,7 @@ button:disabled {
 .cancel-cell {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 4px;
 }
