@@ -17,3 +17,4 @@ createRoot(document.getElementById('root')!).render(
     </WagmiProvider>
   </StrictMode>,
 )
+// ci trigger test
