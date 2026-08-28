@@ -183,6 +183,38 @@ repeated.
 
 ---
 
+## Architectural Decision Documentation
+
+Whenever implementation work involves a real architectural or structural
+decision — not a trivial implementation detail, but something a future
+session would need to know to stay consistent (e.g. how tests are
+organized in a service, a naming/folder convention, a library choice with
+tradeoffs, a pattern for handling a recurring problem) — STOP and ask
+Ricardo before deciding unilaterally. Do not guess or silently pick an
+approach for anything that qualifies as a standing convention.
+
+Once confirmed, document it in the most locally-relevant place:
+
+- Decisions scoped to one service (`contracts/`, `order-indexer/`,
+  `keeper-bot/`, `frontend/`) go in that service's own `CLAUDE.md` if one
+  exists, or should prompt creating one if the decision is significant
+  enough to need local, always-loaded context for future work in that
+  directory (e.g. a testing architecture, a component structure
+  convention).
+- Decisions spanning the whole repo go in this root `CLAUDE.md`'s Design
+  Decisions section, following the existing entries' format (what was
+  decided, why, when).
+- `ROADMAP.md` tracks WHAT will be built and in what order; `CLAUDE.md`
+  files track HOW and WHY, for agent orientation. Don't conflate the two.
+
+Example trigger: choosing `frontend/`'s test file organization convention
+(e.g. co-located `*.test.tsx` vs a `__tests__/` directory) during
+Milestone 12 should produce a `frontend/CLAUDE.md` documenting that
+choice, not just an implementation that happens to follow some ad-hoc
+pattern.
+
+---
+
 ## Testing Expectations (`contracts/`)
 
 - **Unit tests** — full order lifecycle: create, execute, cancel, unauthorized
