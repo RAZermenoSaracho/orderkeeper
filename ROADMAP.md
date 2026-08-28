@@ -68,12 +68,12 @@ whole stack demo-ready and verifiably trustless end-to-end.
 
 **Status: ACTIVE**
 
-With Milestone 10 (multiple competing keeper-bots) confirmed and shipped
-— including a real live race, one instance winning and the other hitting
-`OrderNotPending` exactly as designed — my focus ahead of the Module 16
-presentation is Milestone 11, the frontend's live price display: a small,
-contained new feature, next in difficulty order after the operational and
-config-only milestones before it.
+With Milestone 13 (full test coverage) confirmed and shipped — 60 tests
+across all three off-chain/frontend services, all passing in CI — the MVP
+itself is now presentation-ready for Module 16. My focus shifts to
+Milestone 14, Chainlink Automation as an alternative trigger source: the
+first of the remaining post-MVP milestones, none of which block the
+presentation.
 
 # Milestone 1 - Contracts (Order Lifecycle + Oracle Verification)
 
@@ -223,7 +223,7 @@ Goals:
 
 # Milestone 12 - Multi-Asset Selector
 
-Status: PLANNED
+Status: COMPLETED
 Depends on: Milestone 4
 
 Goals:
@@ -251,9 +251,18 @@ Goals:
   network picker at `docs.chain.link/data-feeds/price-feeds/addresses`
   (select Sepolia) by hand
 
+**Outcome**: BTC, LINK, USDC registered and confirmed live in the
+frontend dropdown. DAI's feed is registered on-chain too, but turned out
+intermittently stale beyond the contract's 1-hour threshold (low Sepolia
+testnet activity) — removed from the frontend's selectable list rather
+than reverted on-chain. See ISSUES.md's "Sepolia DAI feed is registered
+but intermittently stale" entry. The other eight assets from the research
+above were re-checked exhaustively and confirmed infeasible — no Sepolia
+feed exists for any of them.
+
 # Milestone 13 - Full Test Coverage (frontend / order-indexer / keeper-bot)
 
-Status: PLANNED
+Status: COMPLETED
 
 Goals:
 - Adopt Vitest across `frontend/`, `order-indexer/`, and `keeper-bot/` —
@@ -270,6 +279,26 @@ Goals:
 - `contracts/` is already at 100% coverage — no work needed there
 - Resolves `.claude/rules/testing.md`'s current note that no testing
   stack has been chosen for these three services
+
+**Outcome**: 60 tests total, all passing — `order-indexer` 17
+(`serializeOrder()` plus the full Fastify route layer via `.inject()`:
+400 validation, rate limiting, CORS), `keeper-bot` 17 (the poll/check/
+execute loop and race-condition handling, plus `indexerClient.ts`'s
+fetch/timeout/error logic), `frontend` 26 (`App`, `CreateOrderForm`,
+`OrderList`). Coverage on every priority-named file: `order-indexer`'s
+`routes/orders.ts` and new `app.ts` 100%, `keeper-bot`'s `keeper.ts` 96%
+and `indexerClient.ts` 100%, frontend's `App.tsx` 100%, `CreateOrderForm.tsx`
+85%, `OrderList.tsx` 96%. Testing conventions documented in each service's
+own `CLAUDE.md` (`order-indexer/CLAUDE.md` and `keeper-bot/CLAUDE.md` are
+new; `frontend/CLAUDE.md` gained a Testing section) and in
+`.claude/rules/testing.md`. `order-indexer/src/index.ts` was refactored
+to extract `app.ts`'s `buildApp()`, split out from the process-starting
+`main()`, so the real route/plugin stack is testable via `.inject()`
+without a real port — verified against the real running server that the
+refactor didn't change production behavior. `.github/workflows/ci.yml`'s
+`keeper-bot` and `frontend` jobs were missing a `Test` step entirely
+(built before either service had tests) — added, matching
+`order-indexer`'s existing pattern.
 
 # Milestone 14 - Chainlink Automation as Alternative Trigger Source
 
