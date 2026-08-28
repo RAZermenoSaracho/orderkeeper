@@ -68,12 +68,12 @@ whole stack demo-ready and verifiably trustless end-to-end.
 
 **Status: ACTIVE**
 
-With Milestone 9 (mobile-responsive layout + component reorganization)
-confirmed and shipped, my focus ahead of the Module 16 presentation is
-Milestone 10, running a second `keeper-bot` instance to confirm the
-existing race-condition handling holds up under real concurrent
-competition — next in difficulty order: mostly operational (standing up a
-second instance), not new application code.
+With Milestone 10 (multiple competing keeper-bots) confirmed and shipped
+— including a real live race, one instance winning and the other hitting
+`OrderNotPending` exactly as designed — my focus ahead of the Module 16
+presentation is Milestone 11, the frontend's live price display: a small,
+contained new feature, next in difficulty order after the operational and
+config-only milestones before it.
 
 # Milestone 1 - Contracts (Order Lifecycle + Oracle Verification)
 
@@ -190,7 +190,7 @@ Goals:
 
 # Milestone 10 - Multiple Competing Keeper Bots
 
-Status: PLANNED
+Status: COMPLETED
 Depends on: Milestone 3
 
 Goals:
