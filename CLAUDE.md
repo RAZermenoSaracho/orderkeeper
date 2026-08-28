@@ -118,9 +118,9 @@ duplication over premature abstraction at this stage.
   for payments, no private keys in the `order-indexer` (it is read-only by
   design).
 - **Slither is part of the security workflow**: run via
-  `slither contracts/src/` — only `src/`; findings in `lib/` are external
-  dependencies, out of scope. Findings against `src/` are triaged: fixed
-  if real, or suppressed with a `// slither-disable-next-line
+  `slither contracts/src/` — only `src/`; findings in `dependencies/` are
+  external dependencies, out of scope. Findings against `src/` are
+  triaged: fixed if real, or suppressed with a `// slither-disable-next-line
   <detector-id>` comment plus a one-line `@dev`-style rationale directly
   above the flagged line if accepted by design. Never suppressed silently.
 - **Simplicity preference**: avoid over-engineering. Prefer the simplest
