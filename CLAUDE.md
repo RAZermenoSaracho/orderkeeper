@@ -33,11 +33,18 @@ if accepted by design; see Conventions). Deployed and verified end-to-end
 on Sepolia — see README.md's On-Chain Activity section.
 
 `order-indexer/` and `keeper-bot/` have working implementations — event
-indexing + REST API, and the poll/check/execute loop, respectively — not
-yet given the same audit pass as `contracts/` this session.
+indexing + REST API, and the poll/check/execute loop, respectively — and
+were audited and fixed this session: hardening included CORS support,
+consistent `{error:{code,message}}` error handling, fixed `Decimal`
+serialization (was breaking `BigInt()` parsing above $1,000 asset
+prices), a fetch timeout and top-level error handling in `keeper-bot`,
+and replacing `order-indexer`'s filter-based `watchContractEvent` (proved
+unreliable against Alchemy's free tier) with direct `eth_getLogs`
+polling.
 
-`frontend/` is still scaffold-only: directory structure, package
-manifest, and base config, no UI logic yet.
+`frontend/` has a working MVP — wallet connect, order creation, order
+list, and cancellation — verified against a live Sepolia deployment (see
+README.md's On-Chain Activity section).
 
 This file will be updated as each component's state changes.
 
