@@ -22,29 +22,41 @@ Full context: `README.md`.
 
 ## Status
 
-`contracts/` has full business logic: `OrderKeeper.sol` (order lifecycle,
-Chainlink oracle verification, Uniswap V2 execution) and `DemoUSDC.sol` (a
-testnet-only quote token). 62 tests pass by default (`forge test`; the
-fork suite self-skips without `RPC_URL` — all 66 pass with
-`--fork-url sepolia`), covering unit, fork, fuzz, and invariant categories.
-Both contracts are at 100% coverage and `slither`-clean — findings against
-`src/` are triaged (fixed if real, suppressed with a documented rationale
-if accepted by design; see Conventions). Deployed and verified end-to-end
-on Sepolia — see README.md's On-Chain Activity section.
+`contracts/` has full business logic: `OrderKeeper.sol` (bidirectional
+order lifecycle — Sell deposits ETH, Buy deposits `quoteToken`, both
+gated on ETH's Chainlink price — plus Uniswap V2 execution) and
+`DemoUSDC.sol` (a testnet-only quote token). There is no per-order asset
+selector: an earlier revision's `order.asset` only ever chose which feed
+the price condition read, never what the contract actually swapped, and
+was removed when the design went bidirectional on the one pair that has
+real Sepolia liquidity (see Design Decisions below, and `ROADMAP.md`'s
+Milestone 12/15). 75 tests pass by default (`forge test`; the fork suite
+self-skips without `RPC_URL` — all 76 pass with `--fork-url sepolia`),
+covering unit, fork, fuzz, and invariant categories, both directions.
+Both contracts are at 100% coverage and `slither`-clean — findings
+against `src/` are triaged (fixed if real, suppressed with a documented
+rationale if accepted by design; see Conventions). Deployed and verified
+end-to-end on Sepolia, Buy and Sell both — see README.md's On-Chain
+Activity section.
 
 `order-indexer/` and `keeper-bot/` have working implementations — event
-indexing + REST API, and the poll/check/execute loop, respectively — and
-were audited and fixed this session: hardening included CORS support,
-consistent `{error:{code,message}}` error handling, fixed `Decimal`
-serialization (was breaking `BigInt()` parsing above $1,000 asset
-prices), a fetch timeout and top-level error handling in `keeper-bot`,
-and replacing `order-indexer`'s filter-based `watchContractEvent` (proved
-unreliable against Alchemy's free tier) with direct `eth_getLogs`
-polling.
+indexing + REST API, and the poll/check/execute loop, respectively —
+updated for the `side` field alongside the contract redesign above.
+`keeper-bot`'s id-keyed poll/check/execute loop needed almost no changes:
+it was already direction-agnostic. Both were also audited and hardened
+earlier in the project: CORS support, consistent
+`{error:{code,message}}` error handling, fixed `Decimal` serialization
+(was breaking `BigInt()` parsing above $1,000 asset prices), a fetch
+timeout and top-level error handling in `keeper-bot`, and replacing
+`order-indexer`'s filter-based `watchContractEvent` (proved unreliable
+against Alchemy's free tier) with direct `eth_getLogs` polling.
 
-`frontend/` has a working MVP — wallet connect, order creation, order
-list, and cancellation — verified against a live Sepolia deployment (see
-README.md's On-Chain Activity section).
+`frontend/` has a working MVP — wallet connect, a Buy/Sell toggle on
+order creation (with the ERC20 `approve()` step Buy needs before
+`createOrder()`), an order list sorted newest-first with Etherscan links
+on executed orders, and cancellation — verified against a live Sepolia
+deployment, both directions (see README.md's On-Chain Activity section).
+No per-order asset selector, matching `contracts/` above.
 
 This file will be updated as each component's state changes.
 
@@ -258,14 +270,22 @@ coverage with `forge coverage`.
   already runs PostgreSQL locally, so SQLite's zero-setup advantage
   doesn't apply, and this avoids a future migration if the project outlives
   the bootcamp demo. Decided 2026-08-16.
-- **`order.asset` is oracle-only, never the swap target.** `executeOrder()`
-  always swaps `weth` (resolved from `uniswapRouter.WETH()` at
-  construction, immutable) for `quoteToken` — `order.asset` only selects
-  which Chainlink feed the price condition is checked against. Necessary
-  because deposits are always ETH-denominated regardless of which asset
-  prices the condition; conflating the two would make Uniswap V2 revert
-  (it requires `path[0]` to be its own `WETH()` address) for any order
-  whose asset wasn't literally WETH. Decided 2026-08-17.
+- **One real pair, traded in both directions — no per-order asset
+  selector.** `Order.asset` (an earlier field used only to select which
+  Chainlink feed the condition read, never what the contract actually
+  swapped) is gone entirely, replaced by `Order.side` (`Sell`/`Buy`).
+  Sell deposits ETH and swaps `weth` for `quoteToken` when ETH's price
+  rises to target; Buy deposits `quoteToken` and swaps it for `weth` when
+  ETH's price falls to target. Both sides gate on the same value — ETH's
+  price via `getAssetPrice(weth)` — regardless of side. `weth` is still
+  resolved from `uniswapRouter.WETH()` at construction and immutable.
+  Multi-asset trading (the thing `order.asset` gestured at without
+  delivering) was audited and found infeasible on Sepolia — no Uniswap V2
+  pool exists for LINK at all, and the WBTC pool that does exist is
+  mispriced ~47% against its oracle — so the redesign went bidirectional
+  on the one pair that has real liquidity instead. Decided 2026-08-17,
+  redesigned 2026-08-29 (Milestone 15; the reverted multi-asset selector
+  is Milestone 12).
 
 ---
 
@@ -307,8 +327,26 @@ Expected variables, to be finalized as each service is built:
 - `INDEXER_URL` — `keeper-bot`'s base URL for `order-indexer`'s REST API.
 - `ETHERSCAN_API_KEY` — used by `RUNBOOK.md`'s "Verify contract on
   Etherscan" workflow (`forge verify-contract`). Free at
-  https://etherscan.io/apis. Not yet added to `contracts/.env.example`.
+  https://etherscan.io/apis. In `contracts/.env.example`.
 
-`frontend/` needs `VITE_RPC_URL` and `VITE_CONTRACT_ADDRESS` as well —
-added during scaffolding, not yet reviewed as carefully as the rest of
-this list since wallet-connect/config work hasn't started.
+`frontend/` (`frontend/.env.example`) has three `VITE_`-prefixed
+variables — Vite only exposes vars with that prefix to client code, so
+nothing secret belongs here by construction; the frontend never holds a
+`PRIVATE_KEY`, since writes are signed by the connected wallet, not the
+app itself:
+
+- `VITE_RPC_URL` — Sepolia RPC endpoint, used by wagmi's public client
+  for reads.
+- `VITE_CONTRACT_ADDRESS` — the deployed OrderKeeper address (see
+  `deployments/sepolia.json`). **Must match the live contract exactly** —
+  a stale value here, or in `VITE_QUOTE_TOKEN`-equivalent hardcoding
+  inside `frontend/src/config.ts` (`quoteToken.address` isn't itself an
+  env var, but the same staleness risk applies), caused a real bug during
+  Milestone 15's live verification: `config.ts` pointed at a DemoUSDC
+  deployment from before a redeploy, so `approve()` succeeded against the
+  wrong contract and `createOrder()` silently reverted. Cross-check
+  against the live contract's own `quoteToken()`/`weth()` (`cast call`)
+  after every redeploy, not just against `deployments/sepolia.json`.
+- `VITE_INDEXER_URL` — `order-indexer`'s base URL, used to read order
+  history (`GET /orders`). Same value as `keeper-bot/.env`'s
+  `INDEXER_URL`, e.g. `http://localhost:3001`.
