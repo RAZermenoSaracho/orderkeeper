@@ -23,11 +23,17 @@ Add a new entry here alongside each new `## Workflow: ...` section.
 
 ## Workflow: Run full test suite
 
-Runs everything `forge test`/`forge coverage` can check locally. Unit and
-invariant tests need no network access. Fork tests need `RPC_URL`
-configured (`contracts/.env`, resolved via the `sepolia` alias in
-`foundry.toml`) — they read live Sepolia state (the real Chainlink feed,
-the real Uniswap pool) but send no real transactions, so they cost no gas.
+Runs everything each service's own test command can check locally.
+`contracts/`'s unit and invariant tests need no network access; its fork
+tests need `RPC_URL` configured (`contracts/.env`, resolved via the
+`sepolia` alias in `foundry.toml`) — they read live Sepolia state (the
+real Chainlink feed, the real Uniswap pool) but send no real
+transactions, so they cost no gas. `order-indexer/`, `keeper-bot/`, and
+`frontend/` each run via Vitest (`npm test`) and need no network access
+either — see each directory's `CLAUDE.md` for their testing conventions
+(mocking patterns, file organization).
+
+### `contracts/`
 
 ```shell
 cd contracts
@@ -35,7 +41,8 @@ cd contracts
 # Unit tests (OrderKeeperTest + DemoUSDCTest)
 forge test --match-contract "OrderKeeperTest|DemoUSDCTest"
 
-# Invariant test (solvency: contract balance == sum of active order amounts)
+# Invariant tests (three: ETH solvency, quoteToken solvency, no stranded
+# router allowance — see OrderKeeper.invariant.t.sol)
 forge test --match-contract OrderKeeperInvariantTest
 
 # Fork tests (reads live Sepolia state — no gas spent, nothing broadcast)
@@ -49,19 +56,36 @@ forge test --match-test testFuzz -vv
 forge coverage
 ```
 
-**Expected results** (as of 2026-08-17 — if your numbers differ, that's a
-signal to investigate what changed, not necessarily a problem):
+**Expected results** (as of 2026-08-29, after Milestone 15's Buy/Sell
+redesign — if your numbers differ, that's a signal to investigate what
+changed, not necessarily a problem):
 
-- [ ] Unit: `61 passed; 0 failed` (`OrderKeeperTest`: 51, `DemoUSDCTest`: 10).
-- [ ] Invariant: `1 passed; 0 failed` (256 runs, 128,000 calls, 0 reverts
-      against the invariant itself).
-- [ ] Fork: `4 passed; 0 failed`.
-- [ ] Fuzz: `3 passed; 0 failed` (256 runs each — already counted within
+- [ ] Unit: `72 passed; 0 failed` (`OrderKeeperTest`: 62, `DemoUSDCTest`: 10).
+- [ ] Invariant: `3 passed; 0 failed` — `invariant_EthSolvencyMatchesPendingSellOrders`,
+      `invariant_QuoteSolvencyMatchesPendingBuyOrders`, and
+      `invariant_NoStrandedRouterAllowance`, each 256 runs / 128,000
+      calls / 0 reverts.
+- [ ] Fork: `5 passed; 0 failed`.
+- [ ] Fuzz: `4 passed; 0 failed` (256 runs each — already counted within
       the unit total above; this run just isolates them).
 - [ ] Coverage: `src/OrderKeeper.sol` and `src/DemoUSDC.sol` both 100%
       lines/statements/branches/functions.
 - [ ] Plain `forge test` with no flags (fork suite self-skips without
-      `--fork-url`): `62 passed; 0 failed; 1 skipped`.
+      `--fork-url`): `75 passed; 0 failed; 1 skipped` (`76` total —
+      Foundry reports the whole self-skipped fork file as one skipped
+      unit, not five).
+
+### `order-indexer/`, `keeper-bot/`, `frontend/`
+
+```shell
+cd order-indexer && npm test   # or: cd keeper-bot / cd frontend
+```
+
+**Expected results** (as of 2026-08-29):
+
+- [ ] `order-indexer`: `18 passed` (2 test files).
+- [ ] `keeper-bot`: `17 passed` (2 test files).
+- [ ] `frontend`: `32 passed` (3 test files).
 
 ---
 
