@@ -6,7 +6,7 @@ Agent orientation file for OrderKeeper. Read this before making changes.
 
 ## Project Summary
 
-OrderKeeper is a trustless limit-order keeper bot for EVM chains. Users deposit
+OrderKeeper is a trust-minimized limit-order keeper bot for EVM chains. Users deposit
 funds and define a price condition; an off-chain keeper bot monitors a
 Chainlink price feed and triggers on-chain execution via Uniswap when the
 condition is met. The smart contract independently re-verifies the price
@@ -30,8 +30,8 @@ selector: an earlier revision's `order.asset` only ever chose which feed
 the price condition read, never what the contract actually swapped, and
 was removed when the design went bidirectional on the one pair that has
 real Sepolia liquidity (see Design Decisions below, and `ROADMAP.md`'s
-Milestone 12/15). 75 tests pass by default (`forge test`; the fork suite
-self-skips without `RPC_URL` — all 76 pass with `--fork-url sepolia`),
+Milestone 12/15). 76 tests pass by default (`forge test`; the fork suite
+self-skips without `RPC_URL`),
 covering unit, fork, fuzz, and invariant categories, both directions.
 Both contracts are at 100% coverage and `slither`-clean — findings
 against `src/` are triaged (fixed if real, suppressed with a documented
@@ -72,7 +72,7 @@ Agent-specific configuration lives under `.claude/`:
 ├── settings.local.json    # personal overrides (gitignored)
 ├── rules/                 # code-style.md, testing.md, api-conventions.md, security.md
 ├── commands/               # /review, /fix-issue slash commands
-├── skills/deploy/          # deployment workflow (stub until contracts/ exists)
+├── skills/deploy/          # safe Foundry deployment workflow
 ├── skills/resolve-issues/  # works through ISSUES.md entries you select
 ├── agents/                 # code-reviewer, security-auditor sub-agents
 └── hooks/validate-bash.sh  # blocks staged hardcoded-secret patterns
@@ -110,7 +110,7 @@ duplication over premature abstraction at this stage.
 | Component | Stack |
 |---|---|
 | `contracts/` | Foundry, OpenZeppelin (`IERC20`, `ReentrancyGuard`), Chainlink `AggregatorV3Interface`, Uniswap V2 router interface |
-| `order-indexer/` | Node.js, TypeScript, Fastify (REST API: `GET /orders`, `GET /orders/:id`), viem (`eth_getLogs` polling for live events, chunked backfill with 429 backoff), PostgreSQL + Prisma |
+| `order-indexer/` | Node.js, TypeScript, Fastify (REST API: `GET /orders` with optional status/owner filters), viem (`eth_getLogs` polling for live events, chunked backfill with 429 backoff), PostgreSQL + Prisma |
 | `keeper-bot/` | Node.js, TypeScript, viem (own operator wallet, separate from user funds) |
 | `frontend/` | React, Vite, TypeScript (pure SPA, no SSR), viem, wagmi |
 
@@ -337,11 +337,10 @@ app itself:
 
 - `VITE_RPC_URL` — Sepolia RPC endpoint, used by wagmi's public client
   for reads.
-- `VITE_CONTRACT_ADDRESS` — the deployed OrderKeeper address (see
-  `deployments/sepolia.json`). **Must match the live contract exactly** —
-  a stale value here, or in `VITE_QUOTE_TOKEN`-equivalent hardcoding
-  inside `frontend/src/config.ts` (`quoteToken.address` isn't itself an
-  env var, but the same staleness risk applies), caused a real bug during
+- `VITE_CONTRACT_ADDRESS`, `VITE_WETH_ADDRESS`, and
+  `VITE_QUOTE_TOKEN_ADDRESS` — the corresponding addresses from
+  `deployments/sepolia.json`. **All three must come from the same live
+  deployment** — a stale quote-token value caused a real bug during
   Milestone 15's live verification: `config.ts` pointed at a DemoUSDC
   deployment from before a redeploy, so `approve()` succeeded against the
   wrong contract and `createOrder()` silently reverted. Cross-check

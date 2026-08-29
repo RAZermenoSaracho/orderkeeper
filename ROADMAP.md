@@ -2,16 +2,15 @@
 
 ## Product Vision
 
-OrderKeeper is a trustless limit-order keeper bot for EVM chains: I deposit
+OrderKeeper is a trust-minimized limit-order keeper bot for EVM chains: I deposit
 funds and define a price condition, an off-chain keeper bot monitors a
 Chainlink price feed and triggers execution via Uniswap, and the contract
 independently re-verifies that price on-chain before any funds move — the
 keeper bot is trusted only as a trigger, never as a price source. Past the
-bootcamp MVP, my direction is to round out the product surface the
-contract already supports but the frontend doesn't yet expose (multiple
-assets, live pricing context), harden the three off-chain services with
+bootcamp MVP, my direction is to round out the fixed-pair Buy/Sell product
+surface, harden the three off-chain services with
 real test coverage to match `contracts/`'s existing bar, and keep the
-whole stack demo-ready and verifiably trustless end-to-end.
+whole stack demo-ready and verifiably trust-minimized end-to-end.
 
 ## Current Architecture
 
@@ -42,8 +41,8 @@ whole stack demo-ready and verifiably trustless end-to-end.
 **Indexing & Monitoring**
 - Indexes `OrderCreated` / `OrderExecuted` / `OrderCancelled` into
   PostgreSQL via Prisma
-- Read-only, CORS-enabled REST API (`GET /orders`, optional `?status=`
-  filter) — no private key held
+- Read-only, CORS-enabled REST API (`GET /orders`, optional `?status=` and
+  `?owner=` filters) — no private key held
 - Chunked `eth_getLogs` backfill with exponential 429 backoff and a
   proactive inter-chunk throttle
 - Live event watching via direct `eth_getLogs` polling, not viem's
@@ -62,7 +61,7 @@ whole stack demo-ready and verifiably trustless end-to-end.
 - Cancellation for pending orders
 
 **Testing & Deployment**
-- 100% test coverage on `contracts/` (75 tests, 76 with the fork suite)
+- 100% test coverage on `contracts/` (76 local tests, plus the fork suite)
   across unit, fork, fuzz, and invariant categories
 - Slither-clean `src/` — every finding triaged, fixed or
   documented-suppressed
@@ -500,5 +499,5 @@ OrderKeeper's roadmap is fulfilled when:
 - The UI works cleanly on both desktop and mobile
 - `frontend/`, `order-indexer/`, and `keeper-bot/` all have real automated
   test coverage, matching `contracts/`'s existing bar
-- The full stack remains verifiably trustless end-to-end: the keeper bot
+- The full stack remains verifiably trust-minimized end-to-end: the keeper bot
   only ever triggers, the contract alone decides

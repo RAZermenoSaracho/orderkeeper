@@ -1,17 +1,11 @@
-# Deploy Config (stub)
+# Sepolia Deploy Config
 
-Placeholder for deployment target configuration, referenced by
-[SKILL.md](SKILL.md). Empty until `contracts/` exists.
+- Chain ID: `11155111`
+- Deployment script: `contracts/script/DeployOrderKeeper.s.sol`
+- Canonical record: `deployments/sepolia.json`
+- RPC, deployer key, Chainlink ETH/USD feed, and Uniswap V2 router are read
+  from `contracts/.env` as documented by `contracts/.env.example`.
+- The script deploys a fresh DemoUSDC and seeds its WETH pair.
+- Only broadcast/resume execution updates the canonical deployment record.
 
-## Expected shape (not yet real)
-
-Per environment, this should eventually record — non-secret values only,
-everything secret stays in `.env` per `.claude/rules/security.md`:
-
-- Chain name / chain ID
-- Chainlink feed address(es) in use
-- Uniswap router address in use
-- Where the deployed contract address gets recorded (`deployments/`, per
-  `CLAUDE.md`)
-
-No environments are defined yet.
+No other chain or environment is supported by the current MVP.

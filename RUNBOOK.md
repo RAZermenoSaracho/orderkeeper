@@ -14,6 +14,8 @@ gets executed automatically or on your behalf.
 - [Run full test suite](#workflow-run-full-test-suite)
 - [Deploy contracts](#workflow-deploy-contracts)
 - [Verify contract on Etherscan](#workflow-verify-contract-on-etherscan)
+- [Fresh PostgreSQL setup or intentional legacy reset](#workflow-fresh-postgresql-setup-or-intentional-legacy-reset)
+- [Build and prepare MacBook services for PM2](#workflow-build-and-prepare-macbook-services-for-pm2)
 - [End-to-end oracle loop verification](#workflow-end-to-end-oracle-loop-verification)
 - [Multiple competing keeper-bots](#workflow-multiple-competing-keeper-bots)
 
@@ -83,9 +85,9 @@ cd order-indexer && npm test   # or: cd keeper-bot / cd frontend
 
 **Expected results** (as of 2026-08-29):
 
-- [ ] `order-indexer`: `18 passed` (2 test files).
-- [ ] `keeper-bot`: `17 passed` (2 test files).
-- [ ] `frontend`: `32 passed` (3 test files).
+- [ ] `order-indexer`: `25 passed` (3 test files).
+- [ ] `keeper-bot`: `18 passed` (3 test files).
+- [ ] `frontend`: `35 passed` (3 test files).
 
 ---
 
@@ -120,18 +122,9 @@ forge script script/DeployOrderKeeper.s.sol --rpc-url sepolia
 - [ ] `SIMULATION COMPLETE` with no revert; estimated gas/ETH cost looks
       sane.
 
-**⚠️ This overwrites `deployments/sepolia.json` with fake, never-deployed
-addresses — even without `--broadcast`.** Confirmed by actually running
-this: `vm.writeJson` is a cheatcode, not a transaction, so it executes
-during simulation regardless of `--broadcast`. Only the six on-chain
-transactions themselves are gated by `--broadcast`; the JSON write isn't.
-If you're dry-running against an existing real deployment, restore the
-file immediately after:
-
-```shell
-git status deployments/sepolia.json   # confirm it changed
-git restore deployments/sepolia.json  # restore the real record
-```
+The dry run does not update `deployments/sepolia.json`. The script writes
+canonical deployment metadata only in Foundry's broadcast or resume context,
+after the deployment flow completes.
 
 ### Real deploy (sends real transactions, costs real Sepolia ETH)
 
@@ -164,8 +157,8 @@ trusting a locally-compiled ABI.
 
 ### Prerequisites
 
-- [ ] `ETHERSCAN_API_KEY` — not yet in `contracts/.env.example`; get one
-      free at https://etherscan.io/apis and export it before running this.
+- [ ] `ETHERSCAN_API_KEY` configured in `contracts/.env` as documented by
+      `contracts/.env.example`; get one free at https://etherscan.io/apis.
 - [ ] The contract is already deployed (`deployments/sepolia.json` has an
       `OrderKeeper` address).
 - [ ] `jq` installed (or read the addresses out of
@@ -199,6 +192,86 @@ forge verify-contract \
 `DemoUSDC` can be verified the same way — substitute
 `src/DemoUSDC.sol:DemoUSDC` and `$QUOTE_TOKEN` for the address, and drop
 `--constructor-args` entirely (it takes no constructor arguments).
+
+---
+
+## Workflow: Fresh PostgreSQL setup or intentional legacy reset
+
+The current Buy/Sell schema deliberately does not convert rows from the
+obsolete per-order `asset` design. Those rows belong to an older contract
+deployment and cannot be assigned a truthful Buy/Sell side. Final MVP hosting
+therefore starts with a fresh database; the indexer then reconstructs the
+current deployment's history from `deployments/sepolia.json`'s
+`deploymentBlock`.
+
+### Fresh database for final MacBook deployment
+
+Run these manually before starting the indexer, substituting the intended
+database/user names and keeping the real password only in
+`order-indexer/.env`:
+
+```shell
+createdb --owner=YOUR_POSTGRES_USER orderkeeper
+cd order-indexer
+npx prisma migrate deploy
+npx prisma generate
+```
+
+- [ ] `DATABASE_URL` points to the new `orderkeeper` database.
+- [ ] `npx prisma migrate status` reports all migrations applied.
+- [ ] On first start, the indexer logs that it is backfilling from the
+      canonical deployment block rather than from the current chain head.
+- [ ] `GET /orders` contains the current deployment's historical orders after
+      backfill completes.
+
+### Intentional reset of disposable local development data
+
+This procedure is destructive. Use it only when the database named by the
+current `DATABASE_URL` is confirmed to contain disposable development data.
+Stop the indexer and keeper first, verify the URL, and then reset explicitly:
+
+```shell
+cd order-indexer
+grep '^DATABASE_URL=' .env
+npx prisma migrate reset --force
+npx prisma generate
+```
+
+No automatic reset is performed by application startup, tests, or deployment
+scripts. Never use this reset procedure against a database whose history must
+be retained.
+
+---
+
+## Workflow: Build and prepare MacBook services for PM2
+
+This prepares the repository only. Installing PM2, configuring macOS startup,
+and creating a Cloudflare Tunnel remain deliberate manual deployment steps.
+
+```shell
+cd order-indexer && npm ci && npm run prisma:generate && npm run build
+cd ../keeper-bot && npm ci && npm run build
+cd ../frontend && npm ci && npm run build
+cd ..
+```
+
+Before starting `ecosystem.config.cjs`:
+
+- [ ] Create each service's `.env` from `.env.example` and keep it untracked.
+- [ ] Set the frontend's three deployment addresses from the same
+      `deployments/sepolia.json` record.
+- [ ] Set `VITE_INDEXER_URL` to the public HTTPS API hostname that Cloudflare
+      Tunnel will route to `http://127.0.0.1:3001`; Vite embeds this value at
+      build time, so rebuild after changing it.
+- [ ] Route the frontend hostname to `http://127.0.0.1:4173` and the API
+      hostname to `http://127.0.0.1:3001`.
+- [ ] Confirm `curl http://127.0.0.1:3001/health` returns `{"status":"ok"}`.
+
+After PM2 is installed manually, start the repository-defined processes with
+`pm2 start ecosystem.config.cjs`. Use `pm2 logs`, `pm2 save`, and the macOS
+command printed by `pm2 startup` during the deliberate server setup. PM2 keeps
+its normal per-process logs under `~/.pm2/logs`; no secrets belong in the
+ecosystem file.
 
 ---
 
@@ -495,4 +568,3 @@ selector — Milestone 12 was reverted, Milestone 15 replaced it with
 bidirectional Buy/Sell on the one WETH/quoteToken pair, and the current
 deploy script registers only WETH's feed. See `ROADMAP.md`'s Milestone 12
 Outcome note and CLAUDE.md's Design Decisions for why.
-

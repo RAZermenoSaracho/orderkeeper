@@ -8,7 +8,7 @@ A decentralized limit-order keeper bot for EVM chains. Users deposit funds and d
 
 Limit orders are a basic trading primitive on centralized exchanges, but on-chain DEXs (like Uniswap) only support market swaps — there's no native way to say "execute this trade only when price reaches X" without either trusting a centralized service or manually watching the market yourself.
 
-OrderKeeper solves this trustlessly: funds are custodied by a smart contract, execution conditions are verified on-chain against a Chainlink oracle, and anyone can run the keeper bot that triggers execution — no centralized party holds funds or controls execution.
+OrderKeeper uses trust-minimized execution: funds are custodied by a smart contract, execution conditions are verified on-chain against a Chainlink oracle, and anyone can run the keeper bot that triggers execution. The contract owner still controls oracle configuration, as documented below.
 
 ---
 
@@ -16,7 +16,7 @@ OrderKeeper solves this trustlessly: funds are custodied by a smart contract, ex
 
 - **Real income potential**: the keeper fee mechanism means this isn't just a demo — it's a monetizable service.
 - **Architecturally simple, not over-engineered**: unlike MEV liquidation/arbitrage bots (which require simulating market conditions that don't organically exist on testnet), OrderKeeper works end-to-end on Sepolia using a real Chainlink feed and real Uniswap liquidity.
-- **Trustless by design**: the bot only *triggers* execution — the contract independently re-verifies the price against Chainlink before moving any funds, so a compromised or buggy bot can never force a false execution.
+- **Trust-minimized keeper design**: the bot only *triggers* execution — the contract independently re-verifies the price against Chainlink before moving any funds, so a compromised or buggy bot cannot supply a false execution price.
 
 ---
 
@@ -56,7 +56,7 @@ Custodies order funds, verifies price conditions on-chain, executes swaps.
 - **Core logic**: `createOrder()`, `executeOrder()` (re-validates price on-chain before executing), `cancelOrder()`, keeper fee on successful execution
 
 ### 2. `order-indexer/` — Event listener + read API
-Listens for `OrderCreated` / `OrderExecuted` / `OrderCancelled` events, persists them, and exposes them over a REST API (e.g. `GET /orders`, `GET /orders/:id`) so the frontend and keeper don't need to query the chain directly on every read.
+Listens for `OrderCreated` / `OrderExecuted` / `OrderCancelled` events, persists them, and exposes them over a REST API (`GET /orders`, optionally filtered by `status` and/or wallet `owner`) so the frontend and keeper don't need to query the chain directly on every read.
 - **Stack**: Node.js, TypeScript, Fastify (REST API), viem (`eth_getLogs` polling for live events, chunked backfill with 429 backoff), PostgreSQL + Prisma
 - **Read-only**: never sends transactions, never holds a private key — smaller attack surface by design. It only serves reads of indexed history; it never sits in the write path — order creation and cancellation go directly from the frontend to the contract
 
@@ -65,7 +65,7 @@ Polls `order-indexer`'s REST API for pending orders (see Design Decisions), then
 - **Stack**: Node.js, TypeScript, viem — holds its own operator private key (separate from user funds) to sign and send execution transactions
 
 ### 4. `frontend/` — User interface
-Wallet connection, order creation/cancellation, order history and status.
+Wallet connection, order creation/cancellation, and a wallet-scoped **My Orders** history/status view. The owner filter is a UX convenience, not privacy or authentication; Sepolia activity remains public.
 - **Stack**: React + Vite + TypeScript (pure SPA, no SSR), viem, wagmi for wallet connection
 - **Direct-to-contract writes**: order creation and cancellation are signed by the user's wallet and sent straight to the contract via wagmi/viem — the frontend talks to `order-indexer` only to read order history
 
@@ -77,6 +77,27 @@ Wallet connection, order creation/cancellation, order history and status.
 - **Reentrancy protection**: `ReentrancyGuard` on any function moving funds; strict checks-effects-interactions ordering
 - **Oracle trust boundary**: execution price is verified on-chain via Chainlink at execution time — the keeper bot is never trusted as a price source, only as a trigger
 - **Key isolation**: the keeper bot's operator key is fully separate from user funds and from the indexer (which holds no key at all)
+- **Owner-controlled oracle configuration**: the contract owner can replace the WETH price-feed address. Users therefore trust the owner not to install a malicious, invalid, or permanently stale feed; users retain the ability to cancel pending orders, and swap slippage remains bounded by each order.
+
+### Practical MVP numeric domain
+
+The EVM ABI permits theoretical `uint256` values far beyond realistic order
+economics. The indexer preserves amount and price values exactly in
+`NUMERIC(78,0)`, but deliberately supports order IDs only through PostgreSQL's
+signed `INTEGER` maximum and expiries within JavaScript's representable Date
+range. Encountering a value outside that application domain fails indexing
+clearly and leaves the block checkpoint unchanged; it is never truncated,
+rounded, or silently skipped. This off-chain limitation does not change the
+deployed contract's interface or behavior.
+
+### Accepted MVP finality limitation
+
+The indexer intentionally processes the latest available Sepolia block with
+zero confirmation delay so new and executed orders appear quickly during the
+demo. It does not store block hashes or roll back database state after a chain
+reorganization. A reorg can therefore diverge the indexed view from canonical
+chain history. Confirmation-depth indexing and block-hash reconciliation are
+post-MVP reliability work.
 
 ---
 
