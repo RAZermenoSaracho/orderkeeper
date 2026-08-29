@@ -17,6 +17,7 @@ interface DeploymentRecord {
   weth: Address;
   uniswapRouter: Address;
   priceFeed: Address;
+  deploymentBlock: number;
   deployedAt: number;
 }
 

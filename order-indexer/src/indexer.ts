@@ -17,6 +17,8 @@ interface OrderKeeperLog {
 }
 
 const CHECKPOINT_ID = 1;
+const POSTGRES_INT_MAX = 2_147_483_647n;
+const MAX_DATE_TIMESTAMP_SECONDS = 8_640_000_000_000n;
 
 // eth_getLogs block-range limit per call, chunked to stay under it during
 // both backfill and live polling (see syncBlockRange). Discovered the hard
@@ -57,21 +59,19 @@ const BACKFILL_DELAY_MS = Number(process.env.BACKFILL_DELAY_MS ?? 200);
 const WATCH_POLL_INTERVAL_MS = Number(process.env.WATCH_POLL_INTERVAL_MS ?? 15_000);
 
 /// Starts the indexer: backfills any blocks missed since the last
-/// checkpoint (or, on a truly fresh install with no checkpoint, starts
-/// from the current block — this does not retroactively backfill full
-/// contract history from deployment, only resumes across restarts), then
-/// watches for new events indefinitely.
-export async function startIndexer(orderKeeperAddress: Address): Promise<void> {
+/// checkpoint (or from the contract deployment block on a fresh install),
+/// then watches for new events indefinitely.
+export async function startIndexer(orderKeeperAddress: Address, deploymentBlock: bigint): Promise<void> {
   console.log("Fetching current block from RPC...");
   const currentBlock = await publicClient.getBlockNumber();
   console.log(`Current block: ${currentBlock}`);
 
   const checkpoint = await prisma.indexerState.findUnique({ where: { id: CHECKPOINT_ID } });
-  const fromBlock = checkpoint ? checkpoint.lastProcessedBlock + 1n : currentBlock;
+  const fromBlock = checkpoint ? checkpoint.lastProcessedBlock + 1n : deploymentBlock;
   console.log(
     checkpoint
       ? `Resuming from checkpoint: last processed block ${checkpoint.lastProcessedBlock}`
-      : "No checkpoint found — starting from the current block (no historical backfill).",
+      : `No checkpoint found — backfilling from deployment block ${deploymentBlock}.`,
   );
 
   if (fromBlock <= currentBlock) {
@@ -202,20 +202,25 @@ async function handleOrderCreated(log: OrderKeeperLog): Promise<void> {
     expiry: bigint;
   };
 
+  const parsedOrderId = toPostgresInt(orderId, "orderId");
+  const parsedSide = parseSide(side);
+  const parsedCondition = parseCondition(condition);
+  const parsedExpiry = toDate(expiry);
+
   await prisma.order.upsert({
-    where: { orderId: Number(orderId) },
+    where: { orderId: parsedOrderId },
     create: {
-      orderId: Number(orderId),
+      orderId: parsedOrderId,
       owner,
       // Enum ordinals mirror contracts/src/OrderKeeper.sol's declaration
       // order — OrderSide { Sell, Buy }, PriceCondition { GreaterOrEqual,
       // LessOrEqual }.
-      side: side === 0 ? "Sell" : "Buy",
-      condition: condition === 0 ? "GreaterOrEqual" : "LessOrEqual",
+      side: parsedSide,
+      condition: parsedCondition,
       targetPrice: targetPrice.toString(),
       amount: amount.toString(),
       maxSlippageBps: Number(maxSlippageBps),
-      expiry: new Date(Number(expiry) * 1000),
+      expiry: parsedExpiry,
       status: "Pending",
       createdAtBlock: log.blockNumber,
       createdAtTx: log.transactionHash,
@@ -236,7 +241,7 @@ async function handleOrderExecuted(log: OrderKeeperLog): Promise<void> {
   };
 
   await prisma.order.update({
-    where: { orderId: Number(orderId) },
+    where: { orderId: toPostgresInt(orderId, "orderId") },
     data: {
       status: "Executed",
       executedAtBlock: log.blockNumber,
@@ -252,13 +257,39 @@ async function handleOrderCancelled(log: OrderKeeperLog): Promise<void> {
   const { orderId } = log.args as { orderId: bigint; owner: Address; refundAmount: bigint };
 
   await prisma.order.update({
-    where: { orderId: Number(orderId) },
+    where: { orderId: toPostgresInt(orderId, "orderId") },
     data: {
       status: "Cancelled",
       cancelledAtBlock: log.blockNumber,
       cancelledAtTx: log.transactionHash,
     },
   });
+}
+
+function toPostgresInt(value: bigint, field: string): number {
+  if (value > POSTGRES_INT_MAX) {
+    throw new Error(`${field} ${value} exceeds the OrderKeeper MVP indexer's maximum supported value`);
+  }
+  return Number(value);
+}
+
+function parseSide(side: number): "Sell" | "Buy" {
+  if (side === 0) return "Sell";
+  if (side === 1) return "Buy";
+  throw new Error(`OrderSide ordinal ${side} is unsupported`);
+}
+
+function parseCondition(condition: number): "GreaterOrEqual" | "LessOrEqual" {
+  if (condition === 0) return "GreaterOrEqual";
+  if (condition === 1) return "LessOrEqual";
+  throw new Error(`PriceCondition ordinal ${condition} is unsupported`);
+}
+
+function toDate(timestampSeconds: bigint): Date {
+  if (timestampSeconds > MAX_DATE_TIMESTAMP_SECONDS) {
+    throw new Error(`expiry ${timestampSeconds} is outside the JavaScript Date range`);
+  }
+  return new Date(Number(timestampSeconds) * 1000);
 }
 
 async function advanceCheckpoint(blockNumber: bigint): Promise<void> {

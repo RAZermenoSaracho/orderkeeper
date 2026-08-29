@@ -45,14 +45,13 @@ model Order {
 
   condition PriceCondition
 
-  /// uint256 on-chain, normalized to PRICE_DECIMALS (18) — Decimal, not
-  /// Int/BigInt: 18-decimal wei-scale values routinely exceed Postgres
-  /// bigint's ~9.2e18 range.
-  targetPrice Decimal
+  /// uint256 on-chain, normalized to PRICE_DECIMALS (18). NUMERIC(78,0)
+  /// preserves every possible uint256 integer exactly.
+  targetPrice Decimal @db.Decimal(78, 0)
 
   /// The deposited amount: wei for Sell orders, quoteToken base units for
   /// Buy orders — the denomination follows `side`.
-  amount Decimal
+  amount Decimal @db.Decimal(78, 0)
   maxSlippageBps Int
   expiry         DateTime
 
@@ -64,9 +63,9 @@ model Order {
 
   executedAtBlock BigInt?
   executedAtTx    String?
-  executionPrice  Decimal?
-  keeperFee       Decimal?
-  amountOut       Decimal?
+  executionPrice  Decimal? @db.Decimal(78, 0)
+  keeperFee       Decimal? @db.Decimal(78, 0)
+  amountOut       Decimal? @db.Decimal(78, 0)
 
   cancelledAtBlock BigInt?
   cancelledAtTx    String?
