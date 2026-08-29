@@ -7,6 +7,11 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    env: {
+      VITE_RPC_URL: 'http://localhost:8545',
+      VITE_CONTRACT_ADDRESS: '0x0000000000000000000000000000000000000000',
+      VITE_INDEXER_URL: 'http://localhost:3001',
+    },
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,tsx}'],
