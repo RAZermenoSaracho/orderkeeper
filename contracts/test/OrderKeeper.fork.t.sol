@@ -40,12 +40,10 @@ contract OrderKeeperForkTest is Test {
     ///      deployments/sepolia.json) — has actual WETH/DemoUSDC Uniswap
     ///      liquidity, unlike a freshly deployed mock token. Needed so the
     ///      real-swap tests have a real pool to trade against, in both
-    ///      directions. Updated from the pre-2026-08-26 DemoUSDC
-    ///      (0x4d43Dc9D…) when that redeploy seeded a fresh pool: the old
-    ///      token's pool is still sitting at its original ETH ≈ $1,900
-    ///      seeding and has drifted ~22% from the live oracle, while this
-    ///      one was seeded at the current price and tracks it closely.
-    address internal constant SEPOLIA_QUOTE_TOKEN = 0xDB7B8e1c83b14e3E4585FFb2b03088c0520b0568;
+    ///      directions. This address must stay aligned with the current
+    ///      canonical deployment record so the fork suite exercises the
+    ///      same pool used by the live application.
+    address internal constant SEPOLIA_QUOTE_TOKEN = 0x84811D4CBE30fA5Dd42a7421D771C3fA1cD31929;
 
     address internal owner = makeAddr("owner");
 
