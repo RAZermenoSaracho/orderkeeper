@@ -139,20 +139,30 @@ than querying the contract directly — faster reads, at the cost of
 Decided during scaffolding (2026-08-16); direct contract reads remain a
 fallback path if indexer freshness ever becomes a concern.
 
-### `order.asset` is oracle-only, never the swap target
+### One real pair, traded in both directions — no per-order asset selector
 
-`executeOrder()` always swaps `weth` — resolved from the Uniswap router's
-own `WETH()` at construction, and immutable from then on — for
-`quoteToken`. `order.asset` only selects which Chainlink feed the price
-condition is checked against; it never determines what the contract
-actually swaps.
+An earlier revision gave each order an `asset` field used solely to
+select which Chainlink feed the price condition read — the swap itself
+always traded `weth` for `quoteToken` regardless, so picking, say, LINK
+never let anyone actually trade LINK. That field is gone. Auditing what a
+genuine multi-asset version would require surfaced the real blocker: no
+Uniswap V2 pool exists for LINK on Sepolia at all, and the WBTC pool that
+does exist is mispriced ~47% against its oracle. Multi-asset trading
+couldn't have been made real on this testnet without seeding pools first
+(see Milestone 12 in `ROADMAP.md`).
 
-This split matters because deposits are always ETH-denominated,
-regardless of which asset an order's condition tracks. Conflating the two
-would mean Uniswap V2 rejects the swap outright for any order whose
-`asset` wasn't literally WETH — its router requires `path[0]` to be its
-own `WETH()` address for an ETH-value swap to succeed at all. Decided
-2026-08-17.
+The shipped design instead trades the one pair that has real liquidity —
+WETH/quoteToken — in both directions, via `Order.side` (`Sell`/`Buy`).
+Sell deposits ETH and swaps `weth` for `quoteToken` when ETH's price
+rises to target; Buy deposits `quoteToken` and swaps it for `weth` when
+ETH's price falls to target. Both directions gate on the same value —
+ETH's price, via `getAssetPrice(weth)` — regardless of side; there's no
+separate "condition token" to select, since there's only one asset whose
+price could plausibly matter for either direction of this pair. `weth` is
+still resolved from the Uniswap router's own `WETH()` at construction and
+immutable from then on, so the swap path can never drift from what the
+router itself requires. Decided 2026-08-17, redesigned 2026-08-29
+(Milestone 15).
 
 ---
 
@@ -164,7 +174,101 @@ tests — with `order-indexer` and `keeper-bot` both running as long-lived
 services, mirroring how Module 13's `updatePrice()` was proven live rather
 than only unit-tested.
 
+### Current deployment (2026-08-29)
+
+Redeployed for Milestone 15 (bidirectional Buy/Sell orders) — a clean
+redeploy, no migration: `Order.asset` was removed entirely, replaced by a
+`side` field, so the previous deployment's orders don't carry forward.
+Both contracts are verified on Sepolia Etherscan:
+
+- **OrderKeeper**: [`0x907dC6392df5973aD82816C05E2e15F821054503`](https://sepolia.etherscan.io/address/0x907dC6392df5973aD82816C05E2e15F821054503)
+- **DemoUSDC**: [`0x84811D4CBE30fA5Dd42a7421D771C3fA1cD31929`](https://sepolia.etherscan.io/address/0x84811D4CBE30fA5Dd42a7421D771C3fA1cD31929)
+
+Deployment transactions:
+
+- **DemoUSDC deploy**: [`0x63002dea5532653c78b0aa8d4d4e202d26e5239560cba43e8902153e88a1525b`](https://sepolia.etherscan.io/tx/0x63002dea5532653c78b0aa8d4d4e202d26e5239560cba43e8902153e88a1525b) — block `11594244`
+- **OrderKeeper deploy**: [`0x80fda7b95c22660c83e04468d44ddd58b0afc2404ff057cbe76827a5d36b16df`](https://sepolia.etherscan.io/tx/0x80fda7b95c22660c83e04468d44ddd58b0afc2404ff057cbe76827a5d36b16df) — block `11594245`
+- **`addPriceFeed()`**: [`0xad960d0fd814d9609b674f9760e0162a56f99c4add9b72ab740edc10b9f98500`](https://sepolia.etherscan.io/tx/0xad960d0fd814d9609b674f9760e0162a56f99c4add9b72ab740edc10b9f98500) — block `11594246`
+- **DemoUSDC `mint()`**: [`0xdf76bf08c41149e41c435fd4e43095773d59a41e10b5746bbe88c7e90fa8168f`](https://sepolia.etherscan.io/tx/0xdf76bf08c41149e41c435fd4e43095773d59a41e10b5746bbe88c7e90fa8168f) — block `11594247`
+- **DemoUSDC `approve()`**: [`0xed1e74ae8f361ab29728cc9469459eb05299050cdf5377454560a31132ae8ef3`](https://sepolia.etherscan.io/tx/0xed1e74ae8f361ab29728cc9469459eb05299050cdf5377454560a31132ae8ef3) — block `11594248`
+- **`addLiquidityETH()`**: [`0x5acea943473be133ee099e797914ac73d12fff18c8bc4be8f7192c84fc9b5669`](https://sepolia.etherscan.io/tx/0x5acea943473be133ee099e797914ac73d12fff18c8bc4be8f7192c84fc9b5669) — block `11594249`
+
+All six transactions confirmed successfully. Full detail in
+`contracts/broadcast/DeployOrderKeeper.s.sol/11155111/run-latest.json`.
+
+### Verified end-to-end: bidirectional Buy + Sell, current deployment (2026-08-29)
+
+Milestone 15's live verification — both directions of the single
+WETH/quoteToken pair executed for real against the redeploy above, plus a
+real bug found and fixed mid-verification.
+
+**Order #0 (Sell)** — deposit ETH, sell when ETH's price rises to target:
+
+- **`createOrder()` tx**: [`0x356561e59a4b9c119e416c1fbfc30b793baa8d18d73e2aff516fdf68ee7d12a2`](https://sepolia.etherscan.io/tx/0x356561e59a4b9c119e416c1fbfc30b793baa8d18d73e2aff516fdf68ee7d12a2) — block `11594300`
+- **`executeOrder()` tx**: [`0xcf1c9dd4ad51d13bacc4227d4e82065392d11931ecf5e9c71bc81ba6f87de5d7`](https://sepolia.etherscan.io/tx/0xcf1c9dd4ad51d13bacc4227d4e82065392d11931ecf5e9c71bc81ba6f87de5d7) — block `11594302`
+- **`executionPrice`**: `2453290000000000000000` (≈ $2,453.29)
+- **`keeperFee`**: `5000000000000` (0.000005 ETH)
+- **`amountOut`**: `2431288` (≈ 2.431288 DemoUSDC, 6 decimals)
+
+**Bug found while verifying Buy**: the first Buy attempt (through the
+real frontend, before Order #1 below) never produced an `OrderCreated`
+event at all — `order-indexer` correctly showed nothing, which made it
+look like the transaction had never been sent. Root cause:
+`frontend/src/config.ts`'s `quoteToken.address` was stale, still pointing
+at a DemoUSDC deployment from *before* this redeploy. Both the old and
+new DemoUSDC happen to share the symbol `mUSDC` and 6 decimals, so
+nothing about the mismatch was visible in the UI. The frontend's
+`approve()` call was succeeding — just against the wrong contract — so
+`createOrder()`'s `safeTransferFrom` found zero allowance on the *real*
+quoteToken and reverted. A reverted transaction emits no events, which is
+exactly why `order-indexer` showing nothing was the correct, expected
+behavior rather than a clue pointing at the indexer itself. Root-caused
+by cross-checking every address `config.ts` and `RUNBOOK.md` referenced
+against the live contract's own `quoteToken()` (`cast call`), not
+assumed from `deployments/sepolia.json` alone. Fixed in both files.
+
+**Order #1 (Buy)** — reproduced against a disposable test wallet (funded
+and minted DemoUSDC via `cast`, not Ricardo's own wallet) to confirm the
+fix before re-testing through the real UI:
+
+- **`createOrder()` tx**: [`0x81df9e61d677423d844f7276caf6164fdf9ca441e0c161b0538a310f90956b45`](https://sepolia.etherscan.io/tx/0x81df9e61d677423d844f7276caf6164fdf9ca441e0c161b0538a310f90956b45) — block `11594402`
+- **`executeOrder()` tx**: [`0x9f2cbd0e19401ff49d0f6b74e073aa23b4a7732627c2ebacba41d4c861dc3f53`](https://sepolia.etherscan.io/tx/0x9f2cbd0e19401ff49d0f6b74e073aa23b4a7732627c2ebacba41d4c861dc3f53) — block `11594403`
+- **`executionPrice`**: `2453290000000000000000` (≈ $2,453.29)
+- **`keeperFee`**: `125000` (0.125 DemoUSDC — Buy's fee is denominated in
+  the deposit asset, quoteToken, not ETH)
+- **`amountOut`**: `10027653445292405` (≈ 0.01002765 ETH)
+
+**Order #2 (Buy)** — created through the actual frontend UI, with
+Ricardo's own wallet, confirming the fix end-to-end via the real
+approve-then-create flow a user would actually experience:
+
+- **`createOrder()` tx**: [`0xa9f069b138499e452ab972128c448876edd2353cb34ede479886481ac5cea67a`](https://sepolia.etherscan.io/tx/0xa9f069b138499e452ab972128c448876edd2353cb34ede479886481ac5cea67a) — block `11594431`
+- **`executeOrder()` tx**: [`0x821c254568866656078dcfd5144f2fea71234f3b9988895616e5af0512cf149a`](https://sepolia.etherscan.io/tx/0x821c254568866656078dcfd5144f2fea71234f3b9988895616e5af0512cf149a) — block `11594435`
+- **`executionPrice`**: `2453290000000000000000` (≈ $2,453.29)
+- **`keeperFee`**: `125000` (0.125 DemoUSDC)
+- **`amountOut`**: `9828445025037447` (≈ 0.00982845 ETH)
+
+Execution landed 4 blocks after creation here, versus 1–2 for the other
+two orders — `keeper-bot` needed more than one poll cycle before
+executing, and did so correctly rather than submitting once and giving
+up, exercising the same `EXPECTED_RACE_ERRORS` retry handling
+(`keeper-bot/src/keeper.ts`) Milestone 10 proved under two competing
+instances, this time under real timing rather than an engineered race.
+
+`order-indexer` captured all three orders' events correctly, and
+correctly showed nothing for the reverted attempt above — proof that a
+"missing" order in the indexer means "check the chain," not "the indexer
+is broken."
+
+---
+
 ### Current deployment (2026-08-26)
+
+**Superseded** by the 2026-08-29 deployment above — this entry and the
+verification run after it describe the previous, single-direction
+(Sell-only) deployment, before Milestone 15 added bidirectional Buy/Sell
+orders. Kept as a historical record rather than deleted; they do not
+describe the current deployment.
 
 Redeployed after the `order.asset`/swap-path fix (see Design Decisions
 below). Both contracts are verified on Sepolia Etherscan:
