@@ -5,10 +5,14 @@
 Implemented:
 
 ```
-GET /orders    # list orders, optional ?status=pending|executed|cancelled
+GET /orders    # list orders, optional ?status=... and/or ?owner=0x...
 ```
 
-`GET /orders/:id` and owner/pagination filtering are not implemented yet —
+`owner` is validated as an Ethereum address and matched case-insensitively.
+It scopes the frontend's "My Orders" UX to the connected wallet; it is not
+authentication or privacy, because indexed blockchain data is public.
+
+`GET /orders/:id` and pagination filtering are not implemented yet —
 `GET /orders` is scoped narrowly to what `keeper-bot` needs (see
 `.claude/skills/deploy/` era decisions and CLAUDE.md); the broader read
 surface waits for the frontend task that actually needs it. `:id` will be
@@ -40,6 +44,11 @@ returned by `GET /orders`), not a separate indexer-assigned id, once added.
   not numbers — they routinely exceed JS's safe integer range. Block
   numbers (`createdAtBlock`, etc.) are strings for the same reason.
   `expiry` is an ISO 8601 string.
+- Amount and price fields use `NUMERIC(78,0)` and therefore preserve the full
+  uint256 integer domain exactly. The practical MVP application domain keeps
+  `orderId` within PostgreSQL `INTEGER` and `expiry` within JavaScript's Date
+  range. The indexer rejects unsupported values and does not advance its
+  checkpoint; it never truncates or stores a corrupted approximation.
 
 ## Error format
 
@@ -54,6 +63,7 @@ returned by `GET /orders`), not a separate indexer-assigned id, once added.
 
 - HTTP status codes used conventionally (`400` for bad input; `404`/`500`
   apply once routes that can hit them exist).
+- Invalid `owner` values return `400` with code `INVALID_OWNER`.
 - `code` is a stable, machine-readable string; `message` is human-readable
   and not relied upon by clients for logic.
 

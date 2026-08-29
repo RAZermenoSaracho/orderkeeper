@@ -9,6 +9,7 @@ process.env.RATE_LIMIT_MAX = "3";
 process.env.RATE_LIMIT_WINDOW_MS = "60000";
 
 const mockFindMany = vi.fn();
+const CONNECTED_OWNER = "0x369A2e8133Ea0670fCC7C96ff3220c43D3ffeA7A";
 vi.mock("./db.js", () => ({
   prisma: { order: { findMany: (...args: unknown[]) => mockFindMany(...args) } },
 }));
@@ -69,6 +70,46 @@ describe("GET /orders", () => {
     await app.inject({ method: "GET", url: "/orders?status=PENDING" });
 
     expect(mockFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { status: "Pending" } }));
+  });
+
+  test("filters orders by owner case-insensitively", async () => {
+    const owner = "0x369a2e8133ea0670fcc7c96ff3220c43d3ffea7a";
+    const app = await buildApp({ logger: false });
+
+    await app.inject({ method: "GET", url: `/orders?owner=${owner}` });
+
+    expect(mockFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { owner: { equals: CONNECTED_OWNER, mode: "insensitive" } },
+      }),
+    );
+  });
+
+  test("combines owner and status filters", async () => {
+    const app = await buildApp({ logger: false });
+
+    await app.inject({ method: "GET", url: `/orders?owner=${CONNECTED_OWNER}&status=pending` });
+
+    expect(mockFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          owner: { equals: CONNECTED_OWNER, mode: "insensitive" },
+          status: "Pending",
+        },
+      }),
+    );
+  });
+
+  test("rejects an invalid owner address", async () => {
+    const app = await buildApp({ logger: false });
+
+    const response = await app.inject({ method: "GET", url: "/orders?owner=not-an-address" });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      error: { code: "INVALID_OWNER", message: "owner must be a valid Ethereum address" },
+    });
+    expect(mockFindMany).not.toHaveBeenCalled();
   });
 
   test("returns 500 with the generic error shape when prisma throws", async () => {

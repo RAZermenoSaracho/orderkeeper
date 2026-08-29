@@ -1,6 +1,7 @@
 import type { FastifyError, FastifyInstance } from "fastify";
 import { prisma } from "../db.js";
 import type { Order } from "@prisma/client";
+import { getAddress, isAddress } from "viem";
 
 const VALID_STATUSES = ["pending", "executed", "cancelled"] as const;
 type StatusParam = (typeof VALID_STATUSES)[number];
@@ -15,9 +16,9 @@ const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX ?? 100);
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
 
 // Response shape and error format follow .claude/rules/api-conventions.md.
-// Only GET /orders is implemented here — that's all keeper-bot needs; the
-// broader read surface (GET /orders/:id, owner filtering, pagination)
-// waits for the frontend task that actually needs it.
+// Only GET /orders is implemented here — status supports keeper-bot and
+// owner supports the connected-wallet "My Orders" view. Blockchain data
+// remains public; owner filtering is UX scoping, not authentication.
 export function registerOrderRoutes(app: FastifyInstance): void {
   // Catches anything a route handler (or a plugin's preHandler, e.g.
   // @fastify/rate-limit) doesn't handle itself, so the client always gets
@@ -60,7 +61,7 @@ export function registerOrderRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const statusParam = (request.query as { status?: string }).status;
+      const { status: statusParam, owner: ownerParam } = request.query as { status?: string; owner?: string };
 
       if (statusParam !== undefined && !VALID_STATUSES.includes(statusParam.toLowerCase() as StatusParam)) {
         reply.code(400);
@@ -72,8 +73,25 @@ export function registerOrderRoutes(app: FastifyInstance): void {
         };
       }
 
+      if (ownerParam !== undefined && !isAddress(ownerParam)) {
+        reply.code(400);
+        return {
+          error: {
+            code: "INVALID_OWNER",
+            message: "owner must be a valid Ethereum address",
+          },
+        };
+      }
+
+      const where = {
+        ...(statusParam ? { status: capitalize(statusParam.toLowerCase()) as Order["status"] } : {}),
+        ...(ownerParam
+          ? { owner: { equals: getAddress(ownerParam), mode: "insensitive" as const } }
+          : {}),
+      };
+
       const orders = await prisma.order.findMany({
-        where: statusParam ? { status: capitalize(statusParam.toLowerCase()) as Order["status"] } : undefined,
+        where: Object.keys(where).length > 0 ? where : undefined,
         orderBy: { orderId: "asc" },
       });
 
