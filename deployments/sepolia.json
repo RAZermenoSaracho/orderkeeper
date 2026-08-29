@@ -1,6 +1,7 @@
 {
   "OrderKeeper": "0x907dC6392df5973aD82816C05E2e15F821054503",
   "chainId": 11155111,
+  "deploymentBlock": 11594245,
   "deployedAt": 1788036432,
   "priceFeed": "0x694AA1769357215DE4FAC081bf1f309aDC325306",
   "quoteToken": "0x84811D4CBE30fA5Dd42a7421D771C3fA1cD31929",

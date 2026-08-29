@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Script} from "forge-std/Script.sol";
+import {VmSafe} from "forge-std/Vm.sol";
 import {OrderKeeper} from "../src/OrderKeeper.sol";
 import {DemoUSDC} from "../src/DemoUSDC.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
@@ -60,7 +61,16 @@ contract DeployOrderKeeper is Script {
 
         vm.stopBroadcast();
 
-        _writeDeploymentRecord(address(orderKeeper), address(quoteToken), weth, uniswapRouterAddr, priceFeed);
+        if (_shouldWriteDeploymentRecord()) {
+            _writeDeploymentRecord(address(orderKeeper), address(quoteToken), weth, uniswapRouterAddr, priceFeed);
+        }
+    }
+
+    /// @dev Deployment metadata is canonical only after a broadcast or a
+    ///      resumed broadcast. A dry-run's deterministic addresses do not
+    ///      exist on-chain and must never replace the live deployment record.
+    function _shouldWriteDeploymentRecord() internal view returns (bool) {
+        return vm.isContext(VmSafe.ForgeContext.ScriptBroadcast) || vm.isContext(VmSafe.ForgeContext.ScriptResume);
     }
 
     /// @notice Mints DemoUSDC priced at the live Chainlink rate and adds it
@@ -110,6 +120,7 @@ contract DeployOrderKeeper is Script {
         vm.serializeAddress(json, "weth", weth);
         vm.serializeAddress(json, "uniswapRouter", uniswapRouterAddr);
         vm.serializeAddress(json, "priceFeed", priceFeed);
+        vm.serializeUint(json, "deploymentBlock", block.number);
         string memory finalJson = vm.serializeUint(json, "deployedAt", block.timestamp);
 
         vm.writeJson(finalJson, "../deployments/sepolia.json");
