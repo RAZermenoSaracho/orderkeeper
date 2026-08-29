@@ -30,6 +30,14 @@ contract OrderKeeperTest is Test {
     uint256 internal constant EXPECTED_FAIR_VALUE_OUT = 3_980_000_000;
     uint256 internal constant EXPECTED_AMOUNT_OUT_MIN = 3_940_200_000;
 
+    // Buy-side mirror: deposit 4,000 quoteToken (6 decimals) at price $4,000.
+    // keeperFee = 4_000e6 * 50/10000 = 20e6; swapAmount = 3_980e6;
+    // fairValueOut = 3_980e6 * 1e36 / (4000e18 * 1e6) = 0.995e18 wei;
+    // amountOutMin = fairValueOut * 9900/10000 = 0.98505e18.
+    uint256 internal constant BUY_ORDER_AMOUNT = 4_000e6;
+    uint256 internal constant EXPECTED_BUY_FAIR_VALUE_OUT = 0.995 ether;
+    uint256 internal constant EXPECTED_BUY_AMOUNT_OUT_MIN = 0.98505 ether;
+
     // =============================================================
     //                       STATE VARIABLES
     // =============================================================
@@ -42,7 +50,12 @@ contract OrderKeeperTest is Test {
     address internal owner = makeAddr("owner");
     address internal stranger = makeAddr("stranger");
     address internal user = makeAddr("user");
-    address internal asset = makeAddr("asset"); // stand-in token address (e.g. WETH)
+
+    /// @dev The asset every order's condition gates on. No longer a free
+    ///      stand-in address: since orders now trade the real pair in both
+    ///      directions, the priced asset IS the router's WETH. Assigned in
+    ///      setUp() once the router exists.
+    address internal asset;
 
     /// @dev Lets this contract itself receive the keeper fee when a test
     ///      calls executeOrder() without vm.prank-ing a different caller.
@@ -65,11 +78,15 @@ contract OrderKeeperTest is Test {
         // "cannot overwrite a prank until it is applied at least once" on a
         // later unconsumed vm.prank() on stricter Foundry versions.
         orderKeeper = new OrderKeeper(owner, address(quoteTokenMock), address(router));
+        asset = orderKeeper.weth();
 
         vm.deal(user, USER_STARTING_BALANCE);
+        // Buy orders are settled in real ETH by the mock, mirroring how the
+        // real router unwraps WETH to pay the recipient.
+        vm.deal(address(router), 100 ether);
     }
 
-    /// @notice Registers `asset` with the mock feed, as owner.
+    /// @notice Registers `asset` (= weth) with the mock feed, as owner.
     function _registerAssetFeed() internal {
         vm.prank(owner);
         orderKeeper.addPriceFeed(asset, address(priceFeed));
@@ -77,7 +94,7 @@ contract OrderKeeperTest is Test {
 
     /// @notice Builds an in-memory Order for checkPriceCondition tests that
     ///         don't go through createOrder — fields beyond
-    ///         asset/condition/targetPrice are irrelevant to that check, so
+    ///         condition/targetPrice are irrelevant to that check, so
     ///         they're filled with representative defaults.
     function _buildOrder(OrderKeeper.PriceCondition condition, uint256 targetPrice)
         internal
@@ -86,7 +103,7 @@ contract OrderKeeperTest is Test {
     {
         order = OrderKeeper.Order({
             owner: user,
-            asset: asset,
+            side: OrderKeeper.OrderSide.Sell,
             condition: condition,
             targetPrice: targetPrice,
             amount: ORDER_AMOUNT,
@@ -96,12 +113,38 @@ contract OrderKeeperTest is Test {
         });
     }
 
-    /// @notice Registers `asset`'s feed and creates a default order as `user`.
+    /// @notice Registers the feed and creates a default Sell order as `user`.
     function _createDefaultOrder() internal returns (uint256 orderId) {
         _registerAssetFeed();
         vm.prank(user);
         orderId = orderKeeper.createOrder{value: ORDER_AMOUNT}(
-            asset, OrderKeeper.PriceCondition.GreaterOrEqual, 3_500e18, DEFAULT_SLIPPAGE_BPS, block.timestamp + 1 days
+            OrderKeeper.OrderSide.Sell,
+            OrderKeeper.PriceCondition.GreaterOrEqual,
+            3_500e18,
+            ORDER_AMOUNT,
+            DEFAULT_SLIPPAGE_BPS,
+            block.timestamp + 1 days
+        );
+    }
+
+    /// @notice Registers the feed, funds and approves quoteToken, and creates
+    ///         a default Buy order as `user` — mirroring the real
+    ///         approve-then-create flow an ERC20 deposit requires.
+    function _createDefaultBuyOrder() internal returns (uint256 orderId) {
+        _registerAssetFeed();
+        quoteTokenMock.mint(user, BUY_ORDER_AMOUNT);
+
+        vm.prank(user);
+        quoteTokenMock.approve(address(orderKeeper), BUY_ORDER_AMOUNT);
+
+        vm.prank(user);
+        orderId = orderKeeper.createOrder(
+            OrderKeeper.OrderSide.Buy,
+            OrderKeeper.PriceCondition.LessOrEqual,
+            4_500e18,
+            BUY_ORDER_AMOUNT,
+            DEFAULT_SLIPPAGE_BPS,
+            block.timestamp + 1 days
         );
     }
 
@@ -325,7 +368,12 @@ contract OrderKeeperTest is Test {
         _registerAssetFeed();
         vm.prank(user);
         uint256 orderId = orderKeeper.createOrder{value: ORDER_AMOUNT}(
-            asset, OrderKeeper.PriceCondition.GreaterOrEqual, 4_500e18, DEFAULT_SLIPPAGE_BPS, block.timestamp + 1 days
+            OrderKeeper.OrderSide.Sell,
+            OrderKeeper.PriceCondition.GreaterOrEqual,
+            4_500e18,
+            ORDER_AMOUNT,
+            DEFAULT_SLIPPAGE_BPS,
+            block.timestamp + 1 days
         );
 
         assertFalse(orderKeeper.checkPriceCondition(orderId));
@@ -409,8 +457,9 @@ contract OrderKeeperTest is Test {
 
         uint256 swapAmount = amount - keeperFee;
 
-        // --- minAmountOut invariants ---
-        uint256 minAmountOut = harness.exposed_minAmountOut(swapAmount, executionPrice, maxSlippageBps);
+        // --- Sell-side minAmountOut invariants ---
+        uint256 minAmountOut =
+            harness.exposed_minAmountOut(OrderKeeper.OrderSide.Sell, swapAmount, executionPrice, maxSlippageBps);
 
         // Unslippaged oracle-derived fair value, computed independently
         // here (mirrors _minAmountOut's own internal fairValueOut calc) as
@@ -431,6 +480,32 @@ contract OrderKeeperTest is Test {
         }
     }
 
+    /// @notice Fuzz: the Buy direction's _minAmountOut is the exact inverse
+    ///         of the Sell direction — it divides by the ETH price where
+    ///         Sell multiplies — and obeys the same ceiling and
+    ///         non-zero-output properties.
+    /// @dev Bounds mirror the Sell fuzz above, re-denominated: amount is in
+    ///      quoteToken base units (6 decimals here), so 1-1,000,000
+    ///      quoteToken spans the same realistic order sizes.
+    function testFuzz_MinAmountOutBuySide(uint256 amount, uint256 executionPrice, uint256 maxSlippageBps) public {
+        amount = bound(amount, 1e6, 1_000_000e6);
+        executionPrice = bound(executionPrice, 1e18, 1_000_000e18);
+        maxSlippageBps = bound(maxSlippageBps, 1, orderKeeper.MAX_SLIPPAGE_BPS());
+
+        OrderKeeperHarness harness = new OrderKeeperHarness(owner, address(quoteTokenMock), address(router));
+
+        uint256 keeperFee = (amount * harness.KEEPER_FEE_BPS()) / harness.MAX_SLIPPAGE_BPS();
+        uint256 swapAmount = amount - keeperFee;
+
+        uint256 minAmountOut =
+            harness.exposed_minAmountOut(OrderKeeper.OrderSide.Buy, swapAmount, executionPrice, maxSlippageBps);
+
+        // Buy converts quoteToken -> wei, so fair value divides by price.
+        uint256 fairValueOut = (swapAmount * (10 ** (uint256(harness.PRICE_DECIMALS()) + 18)))
+            / (executionPrice * (10 ** harness.quoteTokenDecimals()));
+        assertLe(minAmountOut, fairValueOut);
+    }
+
     // =============================================================
     //                     CREATE ORDER TESTS
     // =============================================================
@@ -445,7 +520,7 @@ contract OrderKeeperTest is Test {
         emit OrderKeeper.OrderCreated(
             0,
             user,
-            asset,
+            OrderKeeper.OrderSide.Sell,
             OrderKeeper.PriceCondition.GreaterOrEqual,
             3_500e18,
             ORDER_AMOUNT,
@@ -455,7 +530,12 @@ contract OrderKeeperTest is Test {
 
         vm.prank(user);
         uint256 orderId = orderKeeper.createOrder{value: ORDER_AMOUNT}(
-            asset, OrderKeeper.PriceCondition.GreaterOrEqual, 3_500e18, DEFAULT_SLIPPAGE_BPS, expiry
+            OrderKeeper.OrderSide.Sell,
+            OrderKeeper.PriceCondition.GreaterOrEqual,
+            3_500e18,
+            ORDER_AMOUNT,
+            DEFAULT_SLIPPAGE_BPS,
+            expiry
         );
 
         assertEq(orderId, 0);
@@ -463,7 +543,7 @@ contract OrderKeeperTest is Test {
 
         (
             address orderOwner,
-            address orderAsset,
+            OrderKeeper.OrderSide side,
             OrderKeeper.PriceCondition condition,
             uint256 targetPrice,
             uint256 amount,
@@ -473,7 +553,7 @@ contract OrderKeeperTest is Test {
         ) = orderKeeper.orders(orderId);
 
         assertEq(orderOwner, user);
-        assertEq(orderAsset, asset);
+        assertEq(uint8(side), uint8(OrderKeeper.OrderSide.Sell));
         assertEq(uint8(condition), uint8(OrderKeeper.PriceCondition.GreaterOrEqual));
         assertEq(targetPrice, 3_500e18);
         assertEq(amount, ORDER_AMOUNT);
@@ -492,23 +572,74 @@ contract OrderKeeperTest is Test {
         assertEq(orderKeeper.nextOrderId(), 2);
     }
 
-    /// @notice Tests that creating an order with no ETH attached reverts.
+    /// @notice Tests that creating an order with a zero amount reverts.
     function test_RevertWhen_CreateOrderZeroAmount() public {
         _registerAssetFeed();
 
         vm.prank(user);
         vm.expectRevert(OrderKeeper.ZeroAmount.selector);
         orderKeeper.createOrder(
-            asset, OrderKeeper.PriceCondition.GreaterOrEqual, 3_500e18, DEFAULT_SLIPPAGE_BPS, block.timestamp + 1 days
+            OrderKeeper.OrderSide.Sell,
+            OrderKeeper.PriceCondition.GreaterOrEqual,
+            3_500e18,
+            0,
+            DEFAULT_SLIPPAGE_BPS,
+            block.timestamp + 1 days
         );
     }
 
-    /// @notice Tests that creating an order for an unsupported asset reverts.
+    /// @notice Tests that creating an order before any feed is registered
+    ///         reverts — every order gates on weth's price.
     function test_RevertWhen_CreateOrderUnsupportedAsset() public {
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(OrderKeeper.UnsupportedAsset.selector, asset));
         orderKeeper.createOrder{value: ORDER_AMOUNT}(
-            asset, OrderKeeper.PriceCondition.GreaterOrEqual, 3_500e18, DEFAULT_SLIPPAGE_BPS, block.timestamp + 1 days
+            OrderKeeper.OrderSide.Sell,
+            OrderKeeper.PriceCondition.GreaterOrEqual,
+            3_500e18,
+            ORDER_AMOUNT,
+            DEFAULT_SLIPPAGE_BPS,
+            block.timestamp + 1 days
+        );
+    }
+
+    /// @notice Tests that a Sell order whose msg.value doesn't match its
+    ///         stated amount reverts, rather than silently under/over-funding.
+    function test_RevertWhen_CreateSellOrderEthValueMismatch() public {
+        _registerAssetFeed();
+
+        vm.prank(user);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                OrderKeeper.InvalidEthValue.selector, OrderKeeper.OrderSide.Sell, ORDER_AMOUNT - 1, ORDER_AMOUNT
+            )
+        );
+        orderKeeper.createOrder{value: ORDER_AMOUNT - 1}(
+            OrderKeeper.OrderSide.Sell,
+            OrderKeeper.PriceCondition.GreaterOrEqual,
+            3_500e18,
+            ORDER_AMOUNT,
+            DEFAULT_SLIPPAGE_BPS,
+            block.timestamp + 1 days
+        );
+    }
+
+    /// @notice Tests that a Buy order with ETH attached reverts — its deposit
+    ///         is pulled as quoteToken, so any ETH would be stranded.
+    function test_RevertWhen_CreateBuyOrderWithEthAttached() public {
+        _registerAssetFeed();
+
+        vm.prank(user);
+        vm.expectRevert(
+            abi.encodeWithSelector(OrderKeeper.InvalidEthValue.selector, OrderKeeper.OrderSide.Buy, 1 wei, 0)
+        );
+        orderKeeper.createOrder{value: 1 wei}(
+            OrderKeeper.OrderSide.Buy,
+            OrderKeeper.PriceCondition.LessOrEqual,
+            4_500e18,
+            BUY_ORDER_AMOUNT,
+            DEFAULT_SLIPPAGE_BPS,
+            block.timestamp + 1 days
         );
     }
 
@@ -519,7 +650,12 @@ contract OrderKeeperTest is Test {
         vm.prank(user);
         vm.expectRevert(OrderKeeper.InvalidExpiry.selector);
         orderKeeper.createOrder{value: ORDER_AMOUNT}(
-            asset, OrderKeeper.PriceCondition.GreaterOrEqual, 3_500e18, DEFAULT_SLIPPAGE_BPS, block.timestamp
+            OrderKeeper.OrderSide.Sell,
+            OrderKeeper.PriceCondition.GreaterOrEqual,
+            3_500e18,
+            ORDER_AMOUNT,
+            DEFAULT_SLIPPAGE_BPS,
+            block.timestamp
         );
     }
 
@@ -532,7 +668,51 @@ contract OrderKeeperTest is Test {
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(OrderKeeper.InvalidSlippage.selector, tooMuchSlippage));
         orderKeeper.createOrder{value: ORDER_AMOUNT}(
-            asset, OrderKeeper.PriceCondition.GreaterOrEqual, 3_500e18, tooMuchSlippage, block.timestamp + 1 days
+            OrderKeeper.OrderSide.Sell,
+            OrderKeeper.PriceCondition.GreaterOrEqual,
+            3_500e18,
+            ORDER_AMOUNT,
+            tooMuchSlippage,
+            block.timestamp + 1 days
+        );
+    }
+
+    /// @notice Tests that a Buy order is created, pulls its quoteToken
+    ///         deposit, and emits OrderCreated with side Buy.
+    function test_CreateBuyOrder() public {
+        uint256 orderId = _createDefaultBuyOrder();
+
+        assertEq(orderId, 0);
+        // The deposit moved from the user into the contract's custody.
+        assertEq(quoteTokenMock.balanceOf(address(orderKeeper)), BUY_ORDER_AMOUNT);
+        assertEq(quoteTokenMock.balanceOf(user), 0);
+        // A Buy order custodies no ETH at all.
+        assertEq(address(orderKeeper).balance, 0);
+
+        (address orderOwner, OrderKeeper.OrderSide side,,, uint256 amount,,, OrderKeeper.OrderStatus status) =
+            orderKeeper.orders(orderId);
+
+        assertEq(orderOwner, user);
+        assertEq(uint8(side), uint8(OrderKeeper.OrderSide.Buy));
+        assertEq(amount, BUY_ORDER_AMOUNT);
+        assertEq(uint8(status), uint8(OrderKeeper.OrderStatus.Pending));
+    }
+
+    /// @notice Tests that a Buy order without a prior approve() reverts —
+    ///         the deposit pull has nothing to draw on.
+    function test_RevertWhen_CreateBuyOrderWithoutApproval() public {
+        _registerAssetFeed();
+        quoteTokenMock.mint(user, BUY_ORDER_AMOUNT);
+
+        vm.prank(user);
+        vm.expectRevert();
+        orderKeeper.createOrder(
+            OrderKeeper.OrderSide.Buy,
+            OrderKeeper.PriceCondition.LessOrEqual,
+            4_500e18,
+            BUY_ORDER_AMOUNT,
+            DEFAULT_SLIPPAGE_BPS,
+            block.timestamp + 1 days
         );
     }
 
@@ -608,7 +788,7 @@ contract OrderKeeperTest is Test {
         _registerAssetFeed();
 
         uint256 orderId = receiver.createOrderOn{value: ORDER_AMOUNT}(
-            orderKeeper, asset, OrderKeeper.PriceCondition.GreaterOrEqual, 3_500e18, DEFAULT_SLIPPAGE_BPS
+            orderKeeper, OrderKeeper.PriceCondition.GreaterOrEqual, 3_500e18, DEFAULT_SLIPPAGE_BPS
         );
 
         vm.expectRevert(OrderKeeper.RefundFailed.selector);
@@ -616,6 +796,24 @@ contract OrderKeeperTest is Test {
 
         (,,,,,,, OrderKeeper.OrderStatus status) = orderKeeper.orders(orderId);
         assertEq(uint8(status), uint8(OrderKeeper.OrderStatus.Pending));
+    }
+
+    /// @notice Tests that cancelling a Buy order refunds quoteToken (not
+    ///         ETH) to the owner and clears the contract's custody of it.
+    function test_CancelBuyOrder_RefundsQuoteToken() public {
+        uint256 orderId = _createDefaultBuyOrder();
+
+        vm.expectEmit(true, true, false, true, address(orderKeeper));
+        emit OrderKeeper.OrderCancelled(orderId, user, BUY_ORDER_AMOUNT);
+
+        vm.prank(user);
+        orderKeeper.cancelOrder(orderId);
+
+        assertEq(quoteTokenMock.balanceOf(user), BUY_ORDER_AMOUNT);
+        assertEq(quoteTokenMock.balanceOf(address(orderKeeper)), 0);
+
+        (,,,,,,, OrderKeeper.OrderStatus status) = orderKeeper.orders(orderId);
+        assertEq(uint8(status), uint8(OrderKeeper.OrderStatus.Cancelled));
     }
 
     // =============================================================
@@ -664,42 +862,101 @@ contract OrderKeeperTest is Test {
         assertGt(randomCaller.balance, 0);
     }
 
-    /// @notice Tests that executeOrder() always swaps WETH for quoteToken,
-    ///         never order.asset — asset is used solely for the oracle
-    ///         lookup. Registers a price feed under an address that is
-    ///         deliberately NOT the router's WETH, and confirms execution
-    ///         still succeeds and the actual swap path sent to the router
-    ///         is [weth, quoteToken], not [asset, quoteToken].
-    function test_ExecuteOrder_SwapsWethRegardlessOfAsset() public {
-        address differentAsset = makeAddr("differentAsset"); // deliberately != orderKeeper.weth()
-        assertNotEq(differentAsset, orderKeeper.weth());
-
-        vm.prank(owner);
-        orderKeeper.addPriceFeed(differentAsset, address(priceFeed));
-
-        vm.prank(user);
-        uint256 orderId = orderKeeper.createOrder{value: ORDER_AMOUNT}(
-            differentAsset,
-            OrderKeeper.PriceCondition.GreaterOrEqual,
-            3_500e18,
-            DEFAULT_SLIPPAGE_BPS,
-            block.timestamp + 1 days
-        );
+    /// @notice Tests that a Sell order swaps along [weth, quoteToken].
+    function test_ExecuteOrder_SellUsesWethToQuotePath() public {
+        uint256 orderId = _createDefaultOrder();
         router.setAmountOut(EXPECTED_FAIR_VALUE_OUT);
 
-        uint256 amountOut = orderKeeper.executeOrder(orderId);
-
-        assertEq(amountOut, EXPECTED_FAIR_VALUE_OUT);
-        assertEq(quoteTokenMock.balanceOf(user), EXPECTED_FAIR_VALUE_OUT);
+        orderKeeper.executeOrder(orderId);
 
         address[] memory lastPath = router.getLastPath();
         assertEq(lastPath.length, 2);
         assertEq(lastPath[0], orderKeeper.weth());
-        assertNotEq(lastPath[0], differentAsset);
         assertEq(lastPath[1], address(quoteTokenMock));
+    }
+
+    /// @notice Tests that a Buy order swaps along the reversed path,
+    ///         [quoteToken, weth] — the same pair, opposite direction.
+    function test_ExecuteBuyOrder_UsesQuoteToWethPath() public {
+        uint256 orderId = _createDefaultBuyOrder();
+        router.setEthAmountOut(EXPECTED_BUY_FAIR_VALUE_OUT);
+
+        orderKeeper.executeOrder(orderId);
+
+        address[] memory lastPath = router.getLastPath();
+        assertEq(lastPath.length, 2);
+        assertEq(lastPath[0], address(quoteTokenMock));
+        assertEq(lastPath[1], orderKeeper.weth());
+    }
+
+    /// @notice Tests a full successful Buy execution: keeper fee paid to the
+    ///         executor in quoteToken (not ETH), ETH paid to the order
+    ///         owner, deposit fully released from custody, status Executed.
+    function test_ExecuteBuyOrder() public {
+        uint256 orderId = _createDefaultBuyOrder();
+        router.setEthAmountOut(EXPECTED_BUY_FAIR_VALUE_OUT);
+
+        uint256 expectedFee = (BUY_ORDER_AMOUNT * orderKeeper.KEEPER_FEE_BPS()) / orderKeeper.MAX_SLIPPAGE_BPS();
+        uint256 userEthBefore = user.balance;
+
+        vm.expectEmit(true, true, false, true, address(orderKeeper));
+        emit OrderKeeper.OrderExecuted(
+            orderId, stranger, NORMALIZED_INITIAL_PRICE, expectedFee, EXPECTED_BUY_FAIR_VALUE_OUT
+        );
+
+        vm.prank(stranger);
+        uint256 amountOut = orderKeeper.executeOrder(orderId);
+
+        assertEq(amountOut, EXPECTED_BUY_FAIR_VALUE_OUT);
+        // Owner received ETH; keeper received its fee in the deposit asset.
+        assertEq(user.balance, userEthBefore + EXPECTED_BUY_FAIR_VALUE_OUT);
+        assertEq(quoteTokenMock.balanceOf(stranger), expectedFee);
+        // Nothing of either asset is left stranded in the contract.
+        assertEq(quoteTokenMock.balanceOf(address(orderKeeper)), 0);
+        assertEq(address(orderKeeper).balance, 0);
 
         (,,,,,,, OrderKeeper.OrderStatus status) = orderKeeper.orders(orderId);
         assertEq(uint8(status), uint8(OrderKeeper.OrderStatus.Executed));
+    }
+
+    /// @notice Tests that a Buy order's swap output below its computed
+    ///         amountOutMin reverts the whole call, leaving it Pending —
+    ///         the same slippage protection the Sell side gets.
+    function test_RevertWhen_ExecuteBuyOrderSlippageExceeded() public {
+        uint256 orderId = _createDefaultBuyOrder();
+        router.setEthAmountOut(EXPECTED_BUY_AMOUNT_OUT_MIN - 1);
+
+        vm.expectRevert(bytes("MockUniswapV2Router: INSUFFICIENT_OUTPUT_AMOUNT"));
+        orderKeeper.executeOrder(orderId);
+
+        (,,,,,,, OrderKeeper.OrderStatus status) = orderKeeper.orders(orderId);
+        assertEq(uint8(status), uint8(OrderKeeper.OrderStatus.Pending));
+        // The deposit is still safely custodied for a later retry.
+        assertEq(quoteTokenMock.balanceOf(address(orderKeeper)), BUY_ORDER_AMOUNT);
+    }
+
+    /// @notice Tests that a Buy order's swap output exactly at amountOutMin
+    ///         is accepted (the check is >=, not >).
+    function test_ExecuteBuyOrder_AcceptsExactAmountOutMin() public {
+        uint256 orderId = _createDefaultBuyOrder();
+        router.setEthAmountOut(EXPECTED_BUY_AMOUNT_OUT_MIN);
+
+        orderKeeper.executeOrder(orderId);
+
+        (,,,,,,, OrderKeeper.OrderStatus status) = orderKeeper.orders(orderId);
+        assertEq(uint8(status), uint8(OrderKeeper.OrderStatus.Executed));
+    }
+
+    /// @notice Tests that a Buy order leaves no standing router allowance
+    ///         after execution — the approval is sized to exactly the swap
+    ///         amount, which the router consumes in full.
+    function test_ExecuteBuyOrder_LeavesNoRouterAllowance() public {
+        uint256 orderId = _createDefaultBuyOrder();
+        router.setEthAmountOut(EXPECTED_BUY_FAIR_VALUE_OUT);
+
+        orderKeeper.executeOrder(orderId);
+
+        assertEq(quoteTokenMock.allowance(address(orderKeeper), address(router)), 0);
     }
 
     /// @notice Tests that executing a non-existent order reverts.
@@ -749,7 +1006,12 @@ contract OrderKeeperTest is Test {
         _registerAssetFeed();
         vm.prank(user);
         uint256 orderId = orderKeeper.createOrder{value: ORDER_AMOUNT}(
-            asset, OrderKeeper.PriceCondition.GreaterOrEqual, 4_500e18, DEFAULT_SLIPPAGE_BPS, block.timestamp + 1 days
+            OrderKeeper.OrderSide.Sell,
+            OrderKeeper.PriceCondition.GreaterOrEqual,
+            4_500e18,
+            ORDER_AMOUNT,
+            DEFAULT_SLIPPAGE_BPS,
+            block.timestamp + 1 days
         ); // price is $4,000, condition requires >= $4,500
 
         vm.expectRevert(abi.encodeWithSelector(OrderKeeper.ConditionNotMet.selector, orderId));
@@ -808,13 +1070,12 @@ contract OrderKeeperTest is Test {
 contract RevertingReceiver {
     function createOrderOn(
         OrderKeeper keeper,
-        address asset,
         OrderKeeper.PriceCondition condition,
         uint256 targetPrice,
         uint256 maxSlippageBps
     ) external payable returns (uint256 orderId) {
         orderId = keeper.createOrder{value: msg.value}(
-            asset, condition, targetPrice, maxSlippageBps, block.timestamp + 1 days
+            OrderKeeper.OrderSide.Sell, condition, targetPrice, msg.value, maxSlippageBps, block.timestamp + 1 days
         );
     }
 
@@ -836,12 +1097,13 @@ contract OrderKeeperHarness is OrderKeeper {
         OrderKeeper(initialOwner, quoteToken_, uniswapRouter_)
     {}
 
-    /// @notice Exposes _minAmountOut for testing.
-    function exposed_minAmountOut(uint256 swapAmount, uint256 executionPrice, uint256 maxSlippageBps)
-        external
-        view
-        returns (uint256)
-    {
-        return _minAmountOut(swapAmount, executionPrice, maxSlippageBps);
+    /// @notice Exposes _minAmountOut for testing, in either direction.
+    function exposed_minAmountOut(
+        OrderKeeper.OrderSide side,
+        uint256 swapAmount,
+        uint256 executionPrice,
+        uint256 maxSlippageBps
+    ) external view returns (uint256) {
+        return _minAmountOut(side, swapAmount, executionPrice, maxSlippageBps);
     }
 }

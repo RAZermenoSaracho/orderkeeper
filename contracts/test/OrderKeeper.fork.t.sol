@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {OrderKeeper} from "../src/OrderKeeper.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title OrderKeeperForkTest
 /// @notice Fork test proving getAssetPrice() correctly reads the real, live
@@ -35,14 +36,24 @@ contract OrderKeeperForkTest is Test {
     ///      already warns about).
     address internal constant SEPOLIA_UNISWAP_V2_ROUTER = 0x6e62b7a37F7d87F84F4A74116F1b5832B0171743;
 
-    /// @dev The real DemoUSDC deployed on Sepolia (see
+    /// @dev The current DemoUSDC deployed on Sepolia (see
     ///      deployments/sepolia.json) — has actual WETH/DemoUSDC Uniswap
-    ///      liquidity, unlike a freshly deployed mock token. Needed so
-    ///      test_Fork_ExecuteOrder_RealSwap has a real pool to swap against.
-    address internal constant SEPOLIA_QUOTE_TOKEN = 0x4d43Dc9D52b9eE1FF82367943f9EbE75a2383521;
+    ///      liquidity, unlike a freshly deployed mock token. Needed so the
+    ///      real-swap tests have a real pool to trade against, in both
+    ///      directions. Updated from the pre-2026-08-26 DemoUSDC
+    ///      (0x4d43Dc9D…) when that redeploy seeded a fresh pool: the old
+    ///      token's pool is still sitting at its original ETH ≈ $1,900
+    ///      seeding and has drifted ~22% from the live oracle, while this
+    ///      one was seeded at the current price and tracks it closely.
+    address internal constant SEPOLIA_QUOTE_TOKEN = 0xDB7B8e1c83b14e3E4585FFb2b03088c0520b0568;
 
     address internal owner = makeAddr("owner");
-    address internal asset = makeAddr("weth"); // our own registry key, not itself an on-chain call target
+
+    /// @dev The asset every order's condition gates on. Must be the
+    ///      router's real WETH now that orders trade the pair for real in
+    ///      both directions — a stand-in address would make createOrder
+    ///      revert with UnsupportedAsset.
+    address internal asset;
 
     OrderKeeper internal orderKeeper;
 
@@ -63,6 +74,7 @@ contract OrderKeeperForkTest is Test {
         // vm.prank() below throws "cannot overwrite a prank until it is
         // applied at least once" on stricter Foundry versions.
         orderKeeper = new OrderKeeper(owner, SEPOLIA_QUOTE_TOKEN, SEPOLIA_UNISWAP_V2_ROUTER);
+        asset = orderKeeper.weth();
 
         vm.prank(owner);
         orderKeeper.addPriceFeed(asset, SEPOLIA_ETH_USD_FEED);
@@ -119,17 +131,17 @@ contract OrderKeeperForkTest is Test {
     ///         sanity-bound tests — not an exact pin, since real AMM price
     ///         impact and any pool drift since deployment mean the actual
     ///         output won't exactly match a naive fair-value calc).
-    /// @dev maxSlippageBps is deliberately wide (30%), not the 1% a real
-    ///      order would reasonably use. Discovered by actually running this
-    ///      test: this pool was seeded in an earlier task at ETH ≈ $1,900
-    ///      and hasn't been arbitraged since (no bots trade this testnet
-    ///      pool), while the live oracle now reads ETH ≈ $2,500 — a ~24%
-    ///      gap. At 1% tolerance the swap correctly reverts with
-    ///      UniswapV2Router: INSUFFICIENT_OUTPUT_AMOUNT — that's the
-    ///      slippage protection working exactly as designed, rejecting a
-    ///      trade against a stale-priced pool. Widening tolerance here is a
-    ///      testing accommodation for that staleness, not evidence the
-    ///      protection is too strict for real use.
+    /// @dev maxSlippageBps is 5%, wider than the 1% a real order would
+    ///      reasonably use but far tighter than the 30% this test needed
+    ///      before the 2026-08-26 redeploy. That redeploy seeded a fresh
+    ///      pool at the then-current price, so the pool now tracks the
+    ///      oracle to within a couple of percent instead of the ~24% gap
+    ///      the old pool had drifted to. The remaining headroom covers
+    ///      genuine AMM cost — the 0.3% swap fee, price impact against a
+    ///      ~1 WETH pool, and whatever drift accrues between runs — not a
+    ///      broken price. If this ever starts failing at 5%, check the pool
+    ///      against the oracle before widening it: a growing gap is the
+    ///      signal, and widening tolerance would hide it.
     function test_Fork_ExecuteOrder_RealSwap() public {
         uint256 livePrice = orderKeeper.getAssetPrice(asset);
 
@@ -139,10 +151,11 @@ contract OrderKeeperForkTest is Test {
 
         vm.prank(orderOwner);
         uint256 orderId = orderKeeper.createOrder{value: orderAmount}(
-            asset,
+            OrderKeeper.OrderSide.Sell,
             OrderKeeper.PriceCondition.GreaterOrEqual,
             livePrice / 2, // comfortably below live price — condition is already true
-            3_000, // 30% slippage — see @dev above: this pool is currently ~24% stale
+            orderAmount,
+            500, // 5% — see @dev above
             block.timestamp + 1 hours
         );
 
@@ -162,6 +175,73 @@ contract OrderKeeperForkTest is Test {
         // Fee math is deterministic regardless of swap outcome — exact,
         // not a bound. executor started at 0 ETH.
         assertEq(executor.balance, keeperFee);
+
+        (,,,,,,, OrderKeeper.OrderStatus status) = orderKeeper.orders(orderId);
+        assertEq(uint8(status), uint8(OrderKeeper.OrderStatus.Executed));
+    }
+
+    /// @notice Proves the Buy direction end-to-end against the same real
+    ///         pool, traded the other way: deposits real DemoUSDC, executes
+    ///         a real quoteToken -> WETH swap through the live router, and
+    ///         confirms the owner receives ETH and the keeper its fee in
+    ///         quoteToken.
+    /// @dev The mirror of test_Fork_ExecuteOrder_RealSwap, and the reason
+    ///      the mock-based unit tests aren't sufficient on their own: only
+    ///      the real router actually unwraps WETH and forwards ETH to the
+    ///      recipient, which is what confirms OrderKeeper's strict
+    ///      receive() doesn't break Buy execution.
+    function test_Fork_ExecuteBuyOrder_RealSwap() public {
+        uint256 livePrice = orderKeeper.getAssetPrice(asset);
+
+        address orderOwner = makeAddr("forkBuyOrderOwner");
+        uint256 orderAmount = 5e6; // 5 DemoUSDC (6 decimals)
+        deal(SEPOLIA_QUOTE_TOKEN, orderOwner, orderAmount);
+
+        vm.prank(orderOwner);
+        IERC20(SEPOLIA_QUOTE_TOKEN).approve(address(orderKeeper), orderAmount);
+
+        vm.prank(orderOwner);
+        uint256 orderId = orderKeeper.createOrder(
+            OrderKeeper.OrderSide.Buy,
+            OrderKeeper.PriceCondition.LessOrEqual,
+            livePrice * 2, // comfortably above live price — condition is already true
+            orderAmount,
+            500, // 5% — same rationale as the Sell-side test above
+            block.timestamp + 1 hours
+        );
+
+        address executor = makeAddr("forkBuyExecutor");
+        uint256 ownerEthBefore = orderOwner.balance;
+        // Captured rather than assumed zero: on a fork, `new OrderKeeper`
+        // lands at a deterministic CREATE address that can already hold ETH
+        // on the real chain — this one does (~0.379 ETH), which made an
+        // absolute `== 0` assertion fail for reasons having nothing to do
+        // with the contract. The property worth proving is that execution
+        // leaves the contract's ETH unchanged, so assert the delta.
+        uint256 keeperEthBefore = address(orderKeeper).balance;
+
+        vm.prank(executor);
+        uint256 amountOut = orderKeeper.executeOrder(orderId);
+
+        uint256 keeperFee = (orderAmount * orderKeeper.KEEPER_FEE_BPS()) / orderKeeper.MAX_SLIPPAGE_BPS();
+        uint256 swapAmount = orderAmount - keeperFee;
+        uint256 expectedFairValue = (swapAmount * (10 ** (uint256(orderKeeper.PRICE_DECIMALS()) + 18)))
+            / (livePrice * (10 ** orderKeeper.quoteTokenDecimals()));
+
+        // Sane bound (half to 1.5x fair value), not an exact pin.
+        assertGt(amountOut, expectedFairValue / 2);
+        assertLt(amountOut, expectedFairValue + expectedFairValue / 2);
+
+        // The owner really received ETH — proving the router's unwrap path
+        // reached them without tripping OrderKeeper's strict receive().
+        assertEq(orderOwner.balance, ownerEthBefore + amountOut);
+
+        // Keeper fee is denominated in the deposit asset for Buy orders.
+        assertEq(IERC20(SEPOLIA_QUOTE_TOKEN).balanceOf(executor), keeperFee);
+
+        // Nothing stranded in the contract, in either asset.
+        assertEq(IERC20(SEPOLIA_QUOTE_TOKEN).balanceOf(address(orderKeeper)), 0);
+        assertEq(address(orderKeeper).balance, keeperEthBefore);
 
         (,,,,,,, OrderKeeper.OrderStatus status) = orderKeeper.orders(orderId);
         assertEq(uint8(status), uint8(OrderKeeper.OrderStatus.Executed));
