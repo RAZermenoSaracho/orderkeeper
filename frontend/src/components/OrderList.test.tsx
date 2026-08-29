@@ -62,11 +62,13 @@ function mockFetchOrders(orders: ReturnType<typeof baseOrder>[]) {
 
 function renderOrderList() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const buildUi = () => (
     <QueryClientProvider client={queryClient}>
       <OrderList />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const result = render(buildUi());
+  return { ...result, rerenderOrderList: () => result.rerender(buildUi()) };
 }
 
 beforeEach(() => {
@@ -91,7 +93,7 @@ afterEach(() => {
 });
 
 describe("OrderList", () => {
-  test("shows only orders owned by the connected wallet, filtering out others client-side", async () => {
+  test("requests Wallet A's orders and does not display Wallet B's orders", async () => {
     mockFetchOrders([
       baseOrder({ orderId: 1, owner: CONNECTED_ADDRESS }),
       baseOrder({ orderId: 2, owner: OTHER_ADDRESS }),
@@ -101,6 +103,10 @@ describe("OrderList", () => {
 
     expect(await screen.findByText(/#1\b/)).toBeInTheDocument();
     expect(screen.queryByText(/#2\b/)).not.toBeInTheDocument();
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      expect.stringContaining(`owner=${encodeURIComponent(CONNECTED_ADDRESS)}`),
+      expect.anything(),
+    );
   });
 
   test("owner comparison is case-insensitive", async () => {
@@ -109,6 +115,43 @@ describe("OrderList", () => {
     renderOrderList();
 
     expect(await screen.findByText(/#1\b/)).toBeInTheDocument();
+  });
+
+  test("does not fetch or display a global order list while disconnected", () => {
+    mockUseAccount.mockReturnValue({ address: undefined } as unknown as ReturnType<typeof wagmi.useAccount>);
+    mockFetchOrders([baseOrder({ orderId: 1 })]);
+
+    renderOrderList();
+
+    expect(screen.getByRole("heading", { name: "My Orders" })).toBeInTheDocument();
+    expect(screen.getByText("Connect your wallet to view your orders.")).toBeInTheDocument();
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    expect(screen.queryByText(/#1\b/)).not.toBeInTheDocument();
+  });
+
+  test("switching accounts fetches and displays the new wallet's orders", async () => {
+    let activeAddress = CONNECTED_ADDRESS;
+    mockUseAccount.mockImplementation(
+      () => ({ address: activeAddress }) as unknown as ReturnType<typeof wagmi.useAccount>,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async (url: string) => {
+        const isWalletA = url.toLowerCase().includes(CONNECTED_ADDRESS.toLowerCase());
+        const orders = isWalletA
+          ? [baseOrder({ orderId: 1, owner: CONNECTED_ADDRESS })]
+          : [baseOrder({ orderId: 2, owner: OTHER_ADDRESS })];
+        return { ok: true, status: 200, json: async () => ({ data: orders, meta: { count: 1 } }) };
+      }),
+    );
+    const view = renderOrderList();
+    expect(await screen.findByText(/#1\b/)).toBeInTheDocument();
+
+    activeAddress = OTHER_ADDRESS;
+    view.rerenderOrderList();
+
+    expect(await screen.findByText(/#2\b/)).toBeInTheDocument();
+    expect(screen.queryByText(/#1\b/)).not.toBeInTheDocument();
   });
 
   test("shows 'No orders yet.' when the connected wallet has none", async () => {

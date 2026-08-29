@@ -47,11 +47,9 @@ function outputUnits(side: IndexedOrder['side']): { decimals: number; symbol: st
   return side === 'Sell' ? { decimals: quoteToken.decimals, symbol: quoteToken.label } : { decimals: ETH_DECIMALS, symbol: 'ETH' }
 }
 
-// GET /orders has no owner filter yet (see .claude/rules/api-conventions.md
-// — only ?status= is implemented), so this fetches everything and filters
-// to the connected wallet client-side.
-async function fetchOrders(): Promise<IndexedOrder[]> {
-  const response = await fetch(`${indexerUrl}/orders`, { signal: AbortSignal.timeout(5_000) })
+async function fetchOrders(owner: string): Promise<IndexedOrder[]> {
+  const params = new URLSearchParams({ owner })
+  const response = await fetch(`${indexerUrl}/orders?${params}`, { signal: AbortSignal.timeout(5_000) })
   if (!response.ok) {
     throw new Error(`order-indexer returned ${response.status}`)
   }
@@ -106,8 +104,9 @@ function OrderList() {
     refetch,
     isFetching,
   } = useQuery({
-    queryKey: ['orders'],
-    queryFn: fetchOrders,
+    queryKey: ['orders', address?.toLowerCase()],
+    queryFn: () => fetchOrders(address!),
+    enabled: address !== undefined,
     // Pauses automatically while the tab isn't visible/focused (react-query
     // default: refetchIntervalInBackground is false).
     refetchInterval: POLL_INTERVAL_MS,
@@ -118,21 +117,27 @@ function OrderList() {
   // regardless of whatever order the indexer's API happens to return rows
   // in — GET /orders documents no sort order (.claude/rules/api-conventions.md).
   const myOrders = (orders ?? [])
-    .filter((order) => address !== undefined && order.owner.toLowerCase() === address.toLowerCase())
+    // Defensive client-side check: the API performs this filter too, but a
+    // stale/misconfigured indexer response must not leak another wallet's
+    // orders into the connected wallet's view.
+    .filter((order) => order.owner.toLowerCase() === address?.toLowerCase())
     .sort((a, b) => b.orderId - a.orderId)
 
   return (
     <section className="order-list">
       <div className="order-list-header">
-        <h2>Your Orders</h2>
-        <button type="button" onClick={() => refetch()} disabled={isFetching}>
-          {isFetching ? 'Refreshing...' : 'Refresh'}
-        </button>
+        <h2>My Orders</h2>
+        {address && (
+          <button type="button" onClick={() => refetch()} disabled={isFetching}>
+            {isFetching ? 'Refreshing...' : 'Refresh'}
+          </button>
+        )}
       </div>
 
-      {isLoading && <p>Loading orders...</p>}
+      {!address && <p>Connect your wallet to view your orders.</p>}
+      {address && isLoading && <p>Loading orders...</p>}
       {error && <p className="form-error">Could not load orders: {error.message}</p>}
-      {!isLoading && !error && myOrders.length === 0 && <p>No orders yet.</p>}
+      {address && !isLoading && !error && myOrders.length === 0 && <p>No orders yet.</p>}
 
       {myOrders.length > 0 && (
         <ul className="order-items">
