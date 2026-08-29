@@ -13,6 +13,14 @@ enum PriceCondition {
   LessOrEqual
 }
 
+/// Mirrors OrderKeeper.OrderSide (contracts/src/OrderKeeper.sol).
+/// Sell deposits ETH and receives quoteToken; Buy deposits quoteToken and
+/// receives ETH.
+enum OrderSide {
+  Sell
+  Buy
+}
+
 /// Mirrors OrderKeeper.OrderStatus (contracts/src/OrderKeeper.sol).
 enum OrderStatus {
   Pending
@@ -29,15 +37,22 @@ model Order {
 
   // --- Fields fixed at creation, from OrderCreated ---
   owner String
-  asset String
+
+  /// Replaced the former `asset` column: orders now trade one fixed pair in
+  /// either direction, rather than naming an asset that was only ever a
+  /// price trigger and never actually swapped.
+  side OrderSide
 
   condition PriceCondition
 
   /// uint256 on-chain, normalized to PRICE_DECIMALS (18) — Decimal, not
   /// Int/BigInt: 18-decimal wei-scale values routinely exceed Postgres
   /// bigint's ~9.2e18 range.
-  targetPrice    Decimal
-  amount         Decimal
+  targetPrice Decimal
+
+  /// The deposited amount: wei for Sell orders, quoteToken base units for
+  /// Buy orders — the denomination follows `side`.
+  amount Decimal
   maxSlippageBps Int
   expiry         DateTime
 

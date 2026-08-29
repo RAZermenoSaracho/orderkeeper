@@ -97,7 +97,7 @@ export function serializeOrder(order: Order) {
   return {
     orderId: order.orderId,
     owner: order.owner,
-    asset: order.asset,
+    side: order.side,
     condition: order.condition,
     // Decimal.toString() switches to exponential notation above 1e21
     // (targetPrice/executionPrice, at PRICE_DECIMALS=18, cross that at a

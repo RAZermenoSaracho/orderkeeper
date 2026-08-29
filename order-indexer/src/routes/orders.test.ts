@@ -10,7 +10,7 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
   return {
     orderId: 0,
     owner: "0x369A2e8133Ea0670fCC7C96ff3220c43D3ffeA7A",
-    asset: "0x1287B650e882514447b96a49a0f8DC1040B26d2A",
+    side: "Sell",
     condition: "GreaterOrEqual",
     targetPrice: new Prisma.Decimal("1000000000000000000000"),
     amount: new Prisma.Decimal("1000000000000000000000"),
@@ -81,15 +81,21 @@ describe("serializeOrder", () => {
     expect(serialized.amountOut).toBeNull();
   });
 
-  test("serializes orderId, owner, asset, condition, maxSlippageBps, and status verbatim", () => {
+  test("serializes orderId, owner, side, condition, maxSlippageBps, and status verbatim", () => {
     const serialized = serializeOrder(makeOrder());
 
     expect(serialized.orderId).toBe(0);
     expect(serialized.owner).toBe("0x369A2e8133Ea0670fCC7C96ff3220c43D3ffeA7A");
-    expect(serialized.asset).toBe("0x1287B650e882514447b96a49a0f8DC1040B26d2A");
+    expect(serialized.side).toBe("Sell");
     expect(serialized.condition).toBe("GreaterOrEqual");
     expect(serialized.maxSlippageBps).toBe(100);
     expect(serialized.status).toBe("Executed");
+  });
+
+  test("serializes a Buy order's side", () => {
+    const serialized = serializeOrder(makeOrder({ side: "Buy" }));
+
+    expect(serialized.side).toBe("Buy");
   });
 
   test("serializes block numbers as strings and expiry as an ISO 8601 string", () => {

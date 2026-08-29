@@ -201,10 +201,10 @@ async function processLog(log: OrderKeeperLog): Promise<void> {
 }
 
 async function handleOrderCreated(log: OrderKeeperLog): Promise<void> {
-  const { orderId, owner, asset, condition, targetPrice, amount, maxSlippageBps, expiry } = log.args as {
+  const { orderId, owner, side, condition, targetPrice, amount, maxSlippageBps, expiry } = log.args as {
     orderId: bigint;
     owner: Address;
-    asset: Address;
+    side: number;
     condition: number;
     targetPrice: bigint;
     amount: bigint;
@@ -217,7 +217,10 @@ async function handleOrderCreated(log: OrderKeeperLog): Promise<void> {
     create: {
       orderId: Number(orderId),
       owner,
-      asset,
+      // Enum ordinals mirror contracts/src/OrderKeeper.sol's declaration
+      // order — OrderSide { Sell, Buy }, PriceCondition { GreaterOrEqual,
+      // LessOrEqual }.
+      side: side === 0 ? "Sell" : "Buy",
       condition: condition === 0 ? "GreaterOrEqual" : "LessOrEqual",
       targetPrice: targetPrice.toString(),
       amount: amount.toString(),

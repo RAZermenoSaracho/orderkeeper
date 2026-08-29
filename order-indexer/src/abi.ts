@@ -11,7 +11,11 @@ export const orderKeeperEventsAbi = [
     inputs: [
       { name: "orderId", type: "uint256", indexed: true },
       { name: "owner", type: "address", indexed: true },
-      { name: "asset", type: "address", indexed: true },
+      // `side` replaced the old `asset` field: orders now trade one fixed
+      // pair in either direction, rather than naming an asset that was only
+      // ever a price trigger. 0 = Sell (deposits ETH), 1 = Buy (deposits
+      // quoteToken).
+      { name: "side", type: "uint8", indexed: false },
       { name: "condition", type: "uint8", indexed: false },
       { name: "targetPrice", type: "uint256", indexed: false },
       { name: "amount", type: "uint256", indexed: false },
