@@ -3,13 +3,13 @@ import { useQuery } from '@tanstack/react-query'
 import { useAccount, useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
 import { BaseError, formatUnits } from 'viem'
 import { orderKeeperAbi } from '../abi.ts'
-import { indexerUrl, orderKeeperAddress, SUPPORTED_ASSETS } from '../config.ts'
+import { indexerUrl, orderKeeperAddress, quoteToken } from '../config.ts'
 
 // Matches order-indexer's serializeOrder() (order-indexer/src/routes/orders.ts).
 interface IndexedOrder {
   orderId: number
   owner: string
-  asset: string
+  side: 'Sell' | 'Buy'
   condition: 'GreaterOrEqual' | 'LessOrEqual'
   targetPrice: string
   amount: string
@@ -17,6 +17,7 @@ interface IndexedOrder {
   expiry: string
   status: 'Pending' | 'Executed' | 'Cancelled'
   createdAtTx: string
+  executedAtTx: string | null
   executionPrice: string | null
   keeperFee: string | null
   amountOut: string | null
@@ -33,11 +34,17 @@ const CONDITION_LABEL: Record<IndexedOrder['condition'], string> = {
   LessOrEqual: '≤',
 }
 
-// Falls back to the raw address for an order whose asset isn't in the
-// current list (e.g. registered directly on-chain, outside this frontend).
-function assetLabel(address: string): string {
-  const match = SUPPORTED_ASSETS.find((asset) => asset.address.toLowerCase() === address.toLowerCase())
-  return match ? match.label : `${address.slice(0, 6)}...${address.slice(-4)}`
+const ETH_DECIMALS = 18
+
+// A Sell order deposits ETH and receives quoteToken; a Buy order does the
+// reverse. Every amount below is denominated by that, so formatting has to
+// follow the side rather than assume a single token.
+function depositUnits(side: IndexedOrder['side']): { decimals: number; symbol: string } {
+  return side === 'Sell' ? { decimals: ETH_DECIMALS, symbol: 'ETH' } : { decimals: quoteToken.decimals, symbol: quoteToken.label }
+}
+
+function outputUnits(side: IndexedOrder['side']): { decimals: number; symbol: string } {
+  return side === 'Sell' ? { decimals: quoteToken.decimals, symbol: quoteToken.label } : { decimals: ETH_DECIMALS, symbol: 'ETH' }
 }
 
 // GET /orders has no owner filter yet (see .claude/rules/api-conventions.md
@@ -106,9 +113,13 @@ function OrderList() {
     refetchInterval: POLL_INTERVAL_MS,
   })
 
-  const myOrders = (orders ?? []).filter(
-    (order) => address !== undefined && order.owner.toLowerCase() === address.toLowerCase(),
-  )
+  // orderId increments monotonically on-chain (see OrderKeeper.nextOrderId),
+  // so sorting by it descending is a reliable newest-first ordering
+  // regardless of whatever order the indexer's API happens to return rows
+  // in — GET /orders documents no sort order (.claude/rules/api-conventions.md).
+  const myOrders = (orders ?? [])
+    .filter((order) => address !== undefined && order.owner.toLowerCase() === address.toLowerCase())
+    .sort((a, b) => b.orderId - a.orderId)
 
   return (
     <section className="order-list">
@@ -128,31 +139,43 @@ function OrderList() {
           {myOrders.map((order) => (
             <li key={order.orderId} className="order-item">
               <div className="order-item-row">
-                <span>#{order.orderId}</span>
+                <span>
+                  #{order.orderId} · {order.side === 'Sell' ? `Sell ETH → ${quoteToken.label}` : `Buy ETH ← ${quoteToken.label}`}
+                </span>
                 <span>{order.status}</span>
               </div>
               <div className="order-item-row">
                 <span>
-                  Asset: {assetLabel(order.asset)} ({order.asset.slice(0, 6)}...{order.asset.slice(-4)})
+                  Condition: ETH price {CONDITION_LABEL[order.condition]} $
+                  {formatUnits(BigInt(order.targetPrice), ETH_DECIMALS)}
                 </span>
               </div>
               <div className="order-item-row">
                 <span>
-                  Condition: price {CONDITION_LABEL[order.condition]} ${formatUnits(BigInt(order.targetPrice), 18)}
+                  Deposited: {formatUnits(BigInt(order.amount), depositUnits(order.side).decimals)}{' '}
+                  {depositUnits(order.side).symbol}
                 </span>
               </div>
-              <div className="order-item-row">
-                <span>Amount: {formatUnits(BigInt(order.amount), 18)} ETH</span>
-              </div>
-              {order.status === 'Executed' && order.executionPrice && order.keeperFee && order.amountOut && (
-                <div className="order-item-row">
-                  <span>
-                    Executed at ${formatUnits(BigInt(order.executionPrice), 18)} — fee{' '}
-                    {formatUnits(BigInt(order.keeperFee), 18)} ETH — received{' '}
-                    {formatUnits(BigInt(order.amountOut), 6)} mUSDC
-                  </span>
-                </div>
-              )}
+              {order.status === 'Executed' &&
+                order.executionPrice &&
+                order.keeperFee &&
+                order.amountOut &&
+                order.executedAtTx && (
+                  <a
+                    className="order-item-row order-item-link"
+                    href={`https://sepolia.etherscan.io/tx/${order.executedAtTx}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <span>
+                      Executed at ${formatUnits(BigInt(order.executionPrice), ETH_DECIMALS)} — fee{' '}
+                      {formatUnits(BigInt(order.keeperFee), depositUnits(order.side).decimals)}{' '}
+                      {depositUnits(order.side).symbol} — received{' '}
+                      {formatUnits(BigInt(order.amountOut), outputUnits(order.side).decimals)}{' '}
+                      {outputUnits(order.side).symbol}
+                    </span>
+                  </a>
+                )}
               {order.status === 'Pending' && <CancelButton orderId={order.orderId} onCancelled={() => refetch()} />}
             </li>
           ))}

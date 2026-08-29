@@ -26,36 +26,41 @@ export const indexerUrl: string = envIndexerUrl;
 // is a browser bundle, not a Node process with filesystem access.
 export const orderKeeperAddress = contractAddress as Address;
 
-export interface SupportedAsset {
-  label: string;
-  address: Address;
-}
+// WETH's Sepolia address (deployments/sepolia.json's "weth"): the asset
+// every order's price condition gates on, and the non-quoteToken side of
+// every swap.
+//
+// A previous revision carried a multi-asset selector here (BTC/LINK/USDC).
+// It was removed deliberately: those assets only ever chose which Chainlink
+// feed the condition read — none of them could actually be traded, and
+// verifying the Uniswap V2 pools later showed LINK has no Sepolia pool at
+// all. Supporting one real pair in both directions is the honest version of
+// the same product. See ROADMAP.md's Milestone 12.
+export const wethAddress: Address = "0x1287B650e882514447b96a49a0f8DC1040B26d2A";
 
-// Assets with a Chainlink feed registered via addPriceFeed() (see
-// RUNBOOK.md's "Register additional price feeds" workflow) — hardcoded
-// rather than a free-text input on the order form, same reasoning as the
-// original WETH-only version: order.asset only selects which Chainlink
-// feed the price condition checks against (see CLAUDE.md's Design
-// Decisions), it's never a token the contract actually calls, so these
-// addresses are oracle lookup keys, not swap-path tokens. WETH stays
-// first/default, matching prior behavior.
-export const SUPPORTED_ASSETS: readonly SupportedAsset[] = [
-  { label: "WETH", address: "0x1287B650e882514447b96a49a0f8DC1040B26d2A" },
-  // No canonical Sepolia BTC token exists (BTC isn't a native EVM asset)
-  // — this is a deterministic placeholder (keccak256("BTC")'s last 20
-  // bytes, same convention as Foundry's makeAddr()), not a real contract.
-  { label: "BTC", address: "0x505e65d08c67660dc618072422e9c78053c261e9" },
-  // Real Sepolia LINK token (Chainlink's own testnet faucet token).
-  { label: "LINK", address: "0x779877A7B0D9E8603169DdbD7836e478b4624789" },
-  // Real Sepolia USDC token (Circle's official testnet deployment).
-  { label: "USDC", address: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" },
-  // DAI is intentionally NOT offered here even though its feed is
-  // registered on-chain (addPriceFeed() already called, not reverted) —
-  // low Sepolia testnet activity leaves it intermittently stale beyond
-  // OrderKeeper's PRICE_STALENESS_THRESHOLD, making it unreliable for a
-  // live demo. See ISSUES.md's "Sepolia DAI feed is registered but
-  // intermittently stale" entry.
-] as const;
+// The ERC20 side of the pair (deployments/sepolia.json's "quoteToken"):
+// what Sell orders receive and what Buy orders deposit. Decimals are
+// hardcoded to match DemoUSDC's 6 — amounts are no longer always 18-decimal
+// now that Buy orders deposit this token instead of ETH.
+//
+// MUST match the live OrderKeeper's own quoteToken() exactly, not just be
+// "a" DemoUSDC deployment — DemoUSDC has no canonical fixed address (each
+// deploy script run deploys a fresh instance), so an address hardcoded
+// here silently goes stale on redeploy. That happened once already: this
+// value pointed at a leftover mUSDC from an earlier deployment while the
+// live contract's real quoteToken() had moved to a different address.
+// Both happened to share the "mUSDC" symbol and 6 decimals, so nothing
+// about the mismatch was visually obvious — Buy's approve() succeeded
+// against the wrong token, then createOrder()'s real safeTransferFrom
+// reverted for insufficient allowance, silently (no OrderCreated event,
+// so order-indexer showed nothing). Cross-check against
+// `cast call <OrderKeeperAddress> "quoteToken()(address)" --rpc-url sepolia`
+// after every redeploy, not just against deployments/sepolia.json.
+export const quoteToken = {
+  label: "mUSDC",
+  address: "0x84811D4CBE30fA5Dd42a7421D771C3fA1cD31929" as Address,
+  decimals: 6,
+} as const;
 
 // Sepolia only — this project's only target network (see CLAUDE.md).
 export const wagmiConfig = createConfig({

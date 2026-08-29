@@ -10,9 +10,12 @@ export const orderKeeperAbi = [
     name: "createOrder",
     stateMutability: "payable",
     inputs: [
-      { name: "asset", type: "address" },
+      // 0 = Sell (deposit ETH as msg.value), 1 = Buy (deposit quoteToken,
+      // pulled via transferFrom — requires a prior approve()).
+      { name: "side", type: "uint8" },
       { name: "condition", type: "uint8" },
       { name: "targetPrice", type: "uint256" },
+      { name: "amount", type: "uint256" },
       { name: "maxSlippageBps", type: "uint256" },
       { name: "expiry", type: "uint256" },
     ],
@@ -80,12 +83,21 @@ export const orderKeeperAbi = [
   },
   { type: "error", name: "RefundFailed", inputs: [] },
   {
+    type: "error",
+    name: "InvalidEthValue",
+    inputs: [
+      { name: "side", type: "uint8" },
+      { name: "sent", type: "uint256" },
+      { name: "expected", type: "uint256" },
+    ],
+  },
+  {
     type: "event",
     name: "OrderCreated",
     inputs: [
       { name: "orderId", type: "uint256", indexed: true },
       { name: "owner", type: "address", indexed: true },
-      { name: "asset", type: "address", indexed: true },
+      { name: "side", type: "uint8", indexed: false },
       { name: "condition", type: "uint8", indexed: false },
       { name: "targetPrice", type: "uint256", indexed: false },
       { name: "amount", type: "uint256", indexed: false },
@@ -112,5 +124,38 @@ export const orderKeeperAbi = [
       { name: "owner", type: "address", indexed: true },
       { name: "refundAmount", type: "uint256", indexed: false },
     ],
+  },
+] as const;
+
+/// Minimal ERC20 surface for the Buy-order approve flow: a Buy order's
+/// quoteToken deposit is pulled via transferFrom, so the user must approve
+/// OrderKeeper for at least the order amount before createOrder can succeed.
+export const erc20Abi = [
+  {
+    type: "function",
+    name: "allowance",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ name: "remaining", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "approve",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "value", type: "uint256" },
+    ],
+    outputs: [{ name: "success", type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "balance", type: "uint256" }],
   },
 ] as const;

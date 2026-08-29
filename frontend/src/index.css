@@ -226,6 +226,12 @@ button:disabled {
   margin: 0;
 }
 
+.form-hint {
+  font-size: 13px;
+  color: var(--text);
+  margin: 0;
+}
+
 .form-success {
   display: flex;
   align-items: center;
@@ -293,6 +299,15 @@ button:disabled {
   font-family: var(--mono);
   font-weight: 600;
   color: var(--text-h);
+}
+
+.order-item-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.order-item-link:hover {
+  text-decoration: underline;
 }
 
 .cancel-cell {

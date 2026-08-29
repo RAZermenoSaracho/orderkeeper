@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react'
-import { useReadContract, useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
-import { BaseError, formatUnits, parseEther, parseUnits, type Address } from 'viem'
-import { orderKeeperAbi } from '../abi.ts'
-import { orderKeeperAddress, SUPPORTED_ASSETS } from '../config.ts'
+import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
+import { BaseError, formatUnits, parseUnits } from 'viem'
+import { erc20Abi, orderKeeperAbi } from '../abi.ts'
+import { orderKeeperAddress, quoteToken, wethAddress } from '../config.ts'
+
+// Mirrors OrderKeeper.OrderSide's declaration order.
+const SIDE_SELL = 0
+const SIDE_BUY = 1
+type OrderSide = typeof SIDE_SELL | typeof SIDE_BUY
 
 const CONDITIONS = [
   { value: 0, label: 'Greater or equal (≥)' },
@@ -29,7 +34,7 @@ function useSecondsAgo(since: number | undefined): number | null {
   return Math.max(0, Math.floor((Date.now() - since) / 1_000))
 }
 
-function LivePrice({ asset }: { asset: Address }) {
+function LivePrice() {
   const {
     data: price,
     error,
@@ -38,13 +43,13 @@ function LivePrice({ asset }: { asset: Address }) {
     address: orderKeeperAddress,
     abi: orderKeeperAbi,
     functionName: 'getAssetPrice',
-    args: [asset],
+    args: [wethAddress],
     query: {
       // Reads exactly what executeOrder() would evaluate (staleness
       // checks and decimal normalization included) via the contract's
       // own getAssetPrice(), rather than reading Chainlink directly, so
       // this can never show a price the contract itself would disagree
-      // with. See ROADMAP.md's Live Price Display milestone.
+      // with. Both order sides gate on this same ETH price.
       refetchInterval: PRICE_POLL_INTERVAL_MS,
     },
   })
@@ -63,29 +68,85 @@ function LivePrice({ asset }: { asset: Address }) {
 }
 
 function CreateOrderForm() {
-  const [assetIndex, setAssetIndex] = useState(0)
-  const selectedAsset = SUPPORTED_ASSETS[assetIndex]!
+  const { address } = useAccount()
+  const [side, setSide] = useState<OrderSide>(SIDE_SELL)
+  // Sell defaults to "sell when ETH rises", Buy to "buy when ETH falls" —
+  // the conditions each side is actually useful with.
   const [condition, setCondition] = useState<0 | 1>(0)
   const [targetPrice, setTargetPrice] = useState('')
-  const [ethAmount, setEthAmount] = useState('')
+  const [amountInput, setAmountInput] = useState('')
   const [maxSlippageBps, setMaxSlippageBps] = useState(DEFAULT_MAX_SLIPPAGE_BPS)
   const [expiryHours, setExpiryHours] = useState(DEFAULT_EXPIRY_HOURS)
   const [formError, setFormError] = useState<string | null>(null)
 
-  const { writeContract, data: hash, isPending, error: writeError, reset } = useWriteContract()
+  const isBuy = side === SIDE_BUY
+  const depositLabel = isBuy ? `${quoteToken.label} to deposit` : 'ETH to deposit'
+  const depositDecimals = isBuy ? quoteToken.decimals : 18
+
+  // Parsed here rather than only at submit time so the approve step can
+  // compare it against the current allowance.
+  let parsedAmount: bigint | null = null
+  try {
+    parsedAmount = amountInput ? parseUnits(amountInput, depositDecimals) : null
+  } catch {
+    parsedAmount = null
+  }
+
+  // --- Buy-side approve flow ---------------------------------------------
+  // A Buy order's deposit is pulled with transferFrom, so the user must
+  // approve OrderKeeper first. That makes Buy a two-transaction flow
+  // (approve, then create) where Sell stays one.
+  const { data: allowance, refetch: refetchAllowance } = useReadContract({
+    address: quoteToken.address,
+    abi: erc20Abi,
+    functionName: 'allowance',
+    args: address ? [address, orderKeeperAddress] : undefined,
+    query: { enabled: isBuy && address !== undefined },
+  })
+
+  const needsApproval =
+    isBuy && parsedAmount !== null && parsedAmount > 0n && (allowance === undefined || allowance < parsedAmount)
+
+  const {
+    writeContract: writeApprove,
+    data: approveHash,
+    isPending: isApprovePending,
+    error: approveError,
+  } = useWriteContract()
+  const { isLoading: isApproveConfirming, isSuccess: isApproved } = useWaitForTransactionReceipt({ hash: approveHash })
+
+  // Once the approval confirms, re-read the allowance so needsApproval
+  // flips and the create step unlocks without a manual refresh.
+  useEffect(() => {
+    if (isApproved) void refetchAllowance()
+  }, [isApproved, refetchAllowance])
+
+  const { writeContract, data: hash, isPending, error: writeError } = useWriteContract()
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash })
+
+  function handleApprove() {
+    if (parsedAmount === null || parsedAmount === 0n) {
+      setFormError('Enter a deposit amount before approving')
+      return
+    }
+    setFormError(null)
+    writeApprove({
+      address: quoteToken.address,
+      abi: erc20Abi,
+      functionName: 'approve',
+      args: [orderKeeperAddress, parsedAmount],
+    })
+  }
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
     setFormError(null)
 
     let targetPriceWei: bigint
-    let ethAmountWei: bigint
     let maxSlippageBpsNum: bigint
     let expiryTimestamp: bigint
     try {
       targetPriceWei = parseUnits(targetPrice, PRICE_DECIMALS)
-      ethAmountWei = parseEther(ethAmount)
       maxSlippageBpsNum = BigInt(maxSlippageBps)
       const hours = Number(expiryHours)
       if (!Number.isFinite(hours) || hours <= 0) {
@@ -97,8 +158,8 @@ function CreateOrderForm() {
       return
     }
 
-    if (ethAmountWei === 0n) {
-      setFormError('ETH amount must be greater than 0')
+    if (parsedAmount === null || parsedAmount === 0n) {
+      setFormError('Deposit amount must be greater than 0')
       return
     }
 
@@ -106,52 +167,54 @@ function CreateOrderForm() {
       address: orderKeeperAddress,
       abi: orderKeeperAbi,
       functionName: 'createOrder',
-      args: [selectedAsset.address, condition, targetPriceWei, maxSlippageBpsNum, expiryTimestamp],
-      value: ethAmountWei,
+      args: [side, condition, targetPriceWei, parsedAmount, maxSlippageBpsNum, expiryTimestamp],
+      // Sell funds itself from msg.value; Buy's deposit comes from the
+      // approved quoteToken pull, and the contract rejects stray ETH on it.
+      value: isBuy ? 0n : parsedAmount,
     })
   }
 
-  function handleReset() {
-    setTargetPrice('')
-    setEthAmount('')
-    setMaxSlippageBps(DEFAULT_MAX_SLIPPAGE_BPS)
-    setExpiryHours(DEFAULT_EXPIRY_HOURS)
+  function handleSideChange(nextSide: OrderSide) {
+    setSide(nextSide)
+    // Reset the amount: it's denominated differently per side, so carrying
+    // "0.01" from an ETH deposit into a quoteToken deposit would silently
+    // mean something completely different.
+    setAmountInput('')
+    setCondition(nextSide === SIDE_BUY ? 1 : 0)
     setFormError(null)
-    reset()
   }
 
   const isSubmitting = isPending || isConfirming
+  const isApproving = isApprovePending || isApproveConfirming
+  const busy = isSubmitting || isApproving
 
   return (
     <form className="create-order-form" onSubmit={handleSubmit}>
       <h2>Create Order</h2>
 
       <label className="form-row">
-        <span className="form-label">Asset</span>
+        <span className="form-label">Side</span>
         <select
-          value={assetIndex}
-          onChange={(event) => setAssetIndex(Number(event.target.value))}
-          disabled={isSubmitting}
+          value={side}
+          onChange={(event) => handleSideChange(Number(event.target.value) as OrderSide)}
+          disabled={busy}
         >
-          {SUPPORTED_ASSETS.map((asset, index) => (
-            <option key={asset.address} value={index}>
-              {asset.label} ({asset.address.slice(0, 6)}...{asset.address.slice(-4)})
-            </option>
-          ))}
+          <option value={SIDE_SELL}>Sell ETH &rarr; {quoteToken.label}</option>
+          <option value={SIDE_BUY}>Buy ETH &larr; {quoteToken.label}</option>
         </select>
       </label>
 
       <div className="form-row">
-        <span className="form-label">Live price</span>
-        <LivePrice asset={selectedAsset.address} />
+        <span className="form-label">Live ETH price</span>
+        <LivePrice />
       </div>
 
       <label className="form-row">
-        <span className="form-label">Condition</span>
+        <span className="form-label">Condition (on ETH price)</span>
         <select
           value={condition}
           onChange={(event) => setCondition(Number(event.target.value) as 0 | 1)}
-          disabled={isSubmitting}
+          disabled={busy}
         >
           {CONDITIONS.map((option) => (
             <option key={option.value} value={option.value}>
@@ -170,21 +233,21 @@ function CreateOrderForm() {
           placeholder="e.g. 4000"
           value={targetPrice}
           onChange={(event) => setTargetPrice(event.target.value)}
-          disabled={isSubmitting}
+          disabled={busy}
           required
         />
       </label>
 
       <label className="form-row">
-        <span className="form-label">ETH to deposit</span>
+        <span className="form-label">{depositLabel}</span>
         <input
           type="number"
           step="any"
           min="0"
-          placeholder="e.g. 0.01"
-          value={ethAmount}
-          onChange={(event) => setEthAmount(event.target.value)}
-          disabled={isSubmitting}
+          placeholder={isBuy ? 'e.g. 25' : 'e.g. 0.01'}
+          value={amountInput}
+          onChange={(event) => setAmountInput(event.target.value)}
+          disabled={busy}
           required
         />
       </label>
@@ -198,7 +261,7 @@ function CreateOrderForm() {
           max="10000"
           value={maxSlippageBps}
           onChange={(event) => setMaxSlippageBps(event.target.value)}
-          disabled={isSubmitting}
+          disabled={busy}
           required
         />
       </label>
@@ -211,21 +274,41 @@ function CreateOrderForm() {
           min="0"
           value={expiryHours}
           onChange={(event) => setExpiryHours(event.target.value)}
-          disabled={isSubmitting}
+          disabled={busy}
           required
         />
       </label>
 
-      <button type="submit" disabled={isSubmitting}>
-        {isPending ? 'Confirm in wallet...' : isConfirming ? 'Creating order...' : 'Create Order'}
-      </button>
+      {needsApproval ? (
+        <>
+          <button type="button" onClick={handleApprove} disabled={busy}>
+            {isApprovePending
+              ? 'Confirm approval in wallet...'
+              : isApproveConfirming
+                ? 'Approving...'
+                : `Approve ${quoteToken.label}`}
+          </button>
+          <p className="form-hint">
+            Buy orders deposit {quoteToken.label}, so OrderKeeper needs your approval to transfer it before the order
+            can be created.
+          </p>
+        </>
+      ) : (
+        <button type="submit" disabled={busy}>
+          {isPending ? 'Confirm in wallet...' : isConfirming ? 'Creating order...' : 'Create Order'}
+        </button>
+      )}
 
       {formError && <p className="form-error">{formError}</p>}
 
-      {writeError && (
+      {approveError && (
         <p className="form-error">
-          {writeError instanceof BaseError ? writeError.shortMessage : writeError.message}
+          {approveError instanceof BaseError ? approveError.shortMessage : approveError.message}
         </p>
+      )}
+
+      {writeError && (
+        <p className="form-error">{writeError instanceof BaseError ? writeError.shortMessage : writeError.message}</p>
       )}
 
       {isConfirmed && hash && (
@@ -234,9 +317,6 @@ function CreateOrderForm() {
           <a href={`https://sepolia.etherscan.io/tx/${hash}`} target="_blank" rel="noreferrer">
             view on Etherscan
           </a>
-          <button type="button" onClick={handleReset}>
-            Create another
-          </button>
         </p>
       )}
     </form>
