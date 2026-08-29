@@ -1,17 +1,23 @@
 import { http, createConfig } from "wagmi";
 import { sepolia } from "wagmi/chains";
 import { injected } from "wagmi/connectors";
-import type { Address } from "viem";
+import { getAddress, isAddress, type Address } from "viem";
+
+function readAddress(name: string, value: string | undefined): Address {
+  if (!value || !isAddress(value)) {
+    throw new Error(`${name} is not set to a valid Ethereum address`);
+  }
+  return getAddress(value);
+}
 
 const rpcUrl = import.meta.env.VITE_RPC_URL;
 if (!rpcUrl) {
   throw new Error("VITE_RPC_URL is not set");
 }
 
-const contractAddress = import.meta.env.VITE_CONTRACT_ADDRESS;
-if (!contractAddress) {
-  throw new Error("VITE_CONTRACT_ADDRESS is not set");
-}
+const contractAddress = readAddress("VITE_CONTRACT_ADDRESS", import.meta.env.VITE_CONTRACT_ADDRESS);
+const configuredWethAddress = readAddress("VITE_WETH_ADDRESS", import.meta.env.VITE_WETH_ADDRESS);
+const quoteTokenAddress = readAddress("VITE_QUOTE_TOKEN_ADDRESS", import.meta.env.VITE_QUOTE_TOKEN_ADDRESS);
 
 const envIndexerUrl = import.meta.env.VITE_INDEXER_URL;
 if (!envIndexerUrl) {
@@ -24,7 +30,7 @@ export const indexerUrl: string = envIndexerUrl;
 // OrderKeeper's deployed address on Sepolia, read from env rather than
 // deployments/sepolia.json (unlike order-indexer/keeper-bot): the frontend
 // is a browser bundle, not a Node process with filesystem access.
-export const orderKeeperAddress = contractAddress as Address;
+export const orderKeeperAddress = contractAddress;
 
 // WETH's Sepolia address (deployments/sepolia.json's "weth"): the asset
 // every order's price condition gates on, and the non-quoteToken side of
@@ -36,18 +42,18 @@ export const orderKeeperAddress = contractAddress as Address;
 // verifying the Uniswap V2 pools later showed LINK has no Sepolia pool at
 // all. Supporting one real pair in both directions is the honest version of
 // the same product. See ROADMAP.md's Milestone 12.
-export const wethAddress: Address = "0x1287B650e882514447b96a49a0f8DC1040B26d2A";
+export const wethAddress = configuredWethAddress;
 
 // The ERC20 side of the pair (deployments/sepolia.json's "quoteToken"):
 // what Sell orders receive and what Buy orders deposit. Decimals are
-// hardcoded to match DemoUSDC's 6 — amounts are no longer always 18-decimal
+// fixed to match DemoUSDC's 6 — amounts are no longer always 18-decimal
 // now that Buy orders deposit this token instead of ETH.
 //
 // MUST match the live OrderKeeper's own quoteToken() exactly, not just be
 // "a" DemoUSDC deployment — DemoUSDC has no canonical fixed address (each
-// deploy script run deploys a fresh instance), so an address hardcoded
-// here silently goes stale on redeploy. That happened once already: this
-// value pointed at a leftover mUSDC from an earlier deployment while the
+// deploy script run deploys a fresh instance), so a stale environment
+// value can still point to an earlier deployment. That happened once: the
+// frontend pointed at a leftover mUSDC while the
 // live contract's real quoteToken() had moved to a different address.
 // Both happened to share the "mUSDC" symbol and 6 decimals, so nothing
 // about the mismatch was visually obvious — Buy's approve() succeeded
@@ -58,7 +64,7 @@ export const wethAddress: Address = "0x1287B650e882514447b96a49a0f8DC1040B26d2A"
 // after every redeploy, not just against deployments/sepolia.json.
 export const quoteToken = {
   label: "mUSDC",
-  address: "0x84811D4CBE30fA5Dd42a7421D771C3fA1cD31929" as Address,
+  address: quoteTokenAddress,
   decimals: 6,
 } as const;
 

@@ -47,12 +47,14 @@ Component Reorganization) in `ROADMAP.md`.
   discriminated unions (idle/pending/success/error variants with mutually
   exclusive fields), and a test only ever needs a handful of those fields
   per case.
-- **`config.ts` throws at module load if `VITE_RPC_URL` / `VITE_CONTRACT_ADDRESS` /
-  `VITE_INDEXER_URL` aren't set — correctly, for real runtime use — but
+- **`config.ts` throws at module load if `VITE_RPC_URL`, any of the three
+  deployment addresses (`VITE_CONTRACT_ADDRESS`, `VITE_WETH_ADDRESS`,
+  `VITE_QUOTE_TOKEN_ADDRESS`), or `VITE_INDEXER_URL` aren't set — correctly,
+  for real runtime use — but
   `.env` is gitignored, so CI and a fresh clone have neither.** Any test
   file that imports a component importing `config.ts` for real (not every
   test mocks it away — `CreateOrderForm`/`OrderList`'s tests assert against
-  the real `SUPPORTED_ASSETS`/`orderKeeperAddress` exports) would otherwise
+  the real deployment-address exports) would otherwise
   fail before a single test runs, not just get a wrong value. Fixed via
   `vite.config.ts`'s `test.env` — confirmed empirically (not assumed) that
   it does populate `import.meta.env.VITE_X` for Vitest, by running the
