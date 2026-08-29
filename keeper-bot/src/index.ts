@@ -1,6 +1,7 @@
 import { loadDeployment } from "./deployment.js";
 import { runPollCycle } from "./keeper.js";
 import { operatorAccount } from "./chain.js";
+import { startPollLoop } from "./pollLoop.js";
 
 const POLL_INTERVAL_MS = 15_000;
 
@@ -16,18 +17,20 @@ async function main(): Promise<void> {
   console.log(`[keeper-bot] Watching OrderKeeper at ${deployment.OrderKeeper}`);
   console.log(`[keeper-bot] Polling ${indexerUrl} every ${POLL_INTERVAL_MS / 1000}s`);
 
-  const interval = setInterval(() => {
-    runPollCycle(deployment.OrderKeeper, indexerUrl!).catch((error) => {
+  const stopPolling = startPollLoop(
+    () => runPollCycle(deployment.OrderKeeper, indexerUrl!),
+    POLL_INTERVAL_MS,
+    (error) => {
       // runPollCycle already catches and logs everything it knows how to
       // handle — anything reaching here is unexpected, but the loop must
       // keep running regardless.
       console.error("[keeper-bot] Unexpected error in poll cycle:", error);
-    });
-  }, POLL_INTERVAL_MS);
+    },
+  );
 
   const shutdown = () => {
     console.log("[keeper-bot] Shutting down.");
-    clearInterval(interval);
+    stopPolling();
     process.exit(0);
   };
   process.on("SIGINT", shutdown);
