@@ -29,6 +29,12 @@ returned by `GET /orders`), not a separate indexer-assigned id, once added.
   follow `{ "data": { ...order } }` when added.
 - Field naming: `camelCase` in JSON, matching TS conventions elsewhere in
   the stack.
+- `side` is `"Sell"` or `"Buy"`, and determines how `amount` is
+  denominated: wei for Sell orders (which deposit ETH), quoteToken base
+  units for Buy orders. Clients must not assume a single denomination.
+  It replaced the former `asset` field when orders became bidirectional
+  trades of one fixed pair rather than single-direction trades tagged with
+  a price-trigger asset.
 - `uint256`/`Decimal` on-chain values (`targetPrice`, `amount`,
   `executionPrice`, `keeperFee`, `amountOut`) are serialized as **strings**,
   not numbers — they routinely exceed JS's safe integer range. Block
