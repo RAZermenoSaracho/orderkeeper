@@ -25,9 +25,13 @@ whole stack demo-ready and verifiably trustless end-to-end.
 ## Current Product Capabilities
 
 **Order Lifecycle**
-- Create, cancel, and execute orders with checks-effects-interactions and
-  `ReentrancyGuard` on every fund-moving path
-- Pull-over-push refunds and keeper fee payout
+- Create, cancel, and execute orders in either direction — Sell (deposit
+  ETH, sell when ETH rises to target) or Buy (deposit quoteToken, buy ETH
+  when ETH falls to target) — on the single WETH/quoteToken pair, with
+  checks-effects-interactions and `ReentrancyGuard` on every fund-moving
+  path
+- Pull-over-push refunds (ETH for Sell, quoteToken for Buy) and keeper fee
+  payout, denominated in whatever the order deposited
 
 **Price Verification & Execution Safety**
 - Price condition re-verified on-chain against Chainlink inside
@@ -48,19 +52,23 @@ whole stack demo-ready and verifiably trustless end-to-end.
 
 **Frontend**
 - Wallet connect via wagmi's injected connector
-- Order creation form (asset defaults to WETH, condition, USD target
-  price, ETH deposit, slippage, expiry)
-- Order list scoped to the connected wallet, with live status
+- Order creation form with a Buy/Sell toggle, condition, USD target price,
+  a deposit field denominated per side (ETH for Sell, quoteToken for
+  Buy), slippage, and expiry — plus the ERC20 `approve()` step Buy orders
+  need before `createOrder()`. No per-order asset selector: both sides
+  trade the one WETH/quoteToken pair (see Milestone 12's revert)
+- Order list scoped to the connected wallet, sorted newest-first, with
+  live status and a Sepolia Etherscan link on executed orders
 - Cancellation for pending orders
 
 **Testing & Deployment**
-- 100% test coverage on `contracts/` (62 tests, 66 with the fork suite)
+- 100% test coverage on `contracts/` (75 tests, 76 with the fork suite)
   across unit, fork, fuzz, and invariant categories
 - Slither-clean `src/` — every finding triaged, fixed or
   documented-suppressed
 - Deployed and verified on Sepolia Etherscan: OrderKeeper
-  `0x2d065b6a75A207e73Cc9f76953A5886B250336FD`, DemoUSDC
-  `0xDB7B8e1c83b14e3E4585FFb2b03088c0520b0568`
+  `0x907dC6392df5973aD82816C05E2e15F821054503`, DemoUSDC
+  `0x84811D4CBE30fA5Dd42a7421D771C3fA1cD31929`
 
 ---
 
@@ -68,12 +76,17 @@ whole stack demo-ready and verifiably trustless end-to-end.
 
 **Status: ACTIVE**
 
-With Milestone 13 (full test coverage) confirmed and shipped — 60 tests
-across all three off-chain/frontend services, all passing in CI — the MVP
-itself is now presentation-ready for Module 16. My focus shifts to
-Milestone 14, Chainlink Automation as an alternative trigger source: the
-first of the remaining post-MVP milestones, none of which block the
-presentation.
+With Milestone 15 (bidirectional Buy/Sell orders) confirmed and shipped —
+verified live on Sepolia in both directions, including a real bug found
+and fixed mid-verification (see Milestone 15's Outcome note) — the
+product now supports genuine two-directional trading of the WETH/
+quoteToken pair, not just a one-way sell flow with a decorative asset
+selector. My focus shifts to Milestone 14, continuous deployment to a
+real production server: this one involves several real architectural
+decisions (pm2 process definitions, how GitHub Actions authenticates
+to/triggers the server, push vs. pull deploy, server-side secrets
+handling) I still need to make before implementation starts, per
+CLAUDE.md's Architectural Decision Documentation rule.
 
 # Milestone 1 - Contracts (Order Lifecycle + Oracle Verification)
 
@@ -223,7 +236,7 @@ Goals:
 
 # Milestone 12 - Multi-Asset Selector
 
-Status: COMPLETED
+Status: COMPLETED, then SUPERSEDED (reverted 2026-08-29)
 Depends on: Milestone 4
 
 Goals:
@@ -259,6 +272,29 @@ than reverted on-chain. See ISSUES.md's "Sepolia DAI feed is registered
 but intermittently stale" entry. The other eight assets from the research
 above were re-checked exhaustively and confirmed infeasible — no Sepolia
 feed exists for any of them.
+
+**Superseded 2026-08-29** — the frontend selector was reverted to
+WETH-only. Kept in this roadmap rather than deleted: the work shipped and
+the feed research below is real and still accurate.
+
+Why it was reverted: the selector was a trigger-only gimmick. Picking BTC
+or LINK only chose which Chainlink feed the price condition read — the
+contract always swapped WETH for quoteToken regardless, so a user
+selecting "LINK" was never able to trade LINK. Auditing the redesign that
+would have made it genuine surfaced the harder blocker: **LINK has no
+Uniswap V2 pool on Sepolia at all** (verified against the factory at
+`0xAC40888A…` — neither LINK/WETH nor LINK/quoteToken exists), and the
+WBTC pool that does exist is mispriced ~47% against the BTC/USD oracle.
+So the multi-asset story could not have been made real on this testnet
+without seeding pools first.
+
+The simpler and more honest product — and the one that ships today — is
+bidirectional trading of the single pair that has real liquidity: buy and
+sell ETH against quoteToken. That became Milestone 15.
+
+The feed addresses in the table above remain valid and are worth keeping
+for any future multi-asset work; what was missing was never the feeds, it
+was the pools.
 
 # Milestone 13 - Full Test Coverage (frontend / order-indexer / keeper-bot)
 
@@ -300,7 +336,101 @@ refactor didn't change production behavior. `.github/workflows/ci.yml`'s
 (built before either service had tests) — added, matching
 `order-indexer`'s existing pattern.
 
-# Milestone 14 - Chainlink Automation as Alternative Trigger Source
+# Milestone 14 - Continuous Deployment to Production Server
+
+Status: PLANNED
+
+Goals:
+- Deploy the full stack (frontend, order-indexer, keeper-bot) to
+  Ricardo's Mac server, exposed via Cloudflare Tunnel, process-managed
+  with pm2
+- Add a GitHub Actions workflow that redeploys automatically whenever
+  changes are pushed/merged to main
+- This needs real architectural decisions — pm2 process definitions, how
+  the GitHub Actions workflow authenticates to/triggers the server,
+  push-to-deploy via SSH vs. pull-based, env/secrets handling on the
+  server — per CLAUDE.md's Architectural Decision Documentation rule,
+  ask before implementing rather than guessing
+
+# Milestone 15 - Bidirectional Limit Orders (Buy + Sell)
+
+Status: COMPLETED
+
+Goals:
+- Scope is deliberately the single existing pair (WETH ↔ quoteToken)
+  traded in both directions — not arbitrary token pairs. Sell keeps the
+  existing behaviour (deposit ETH, sell when ETH rises to target); Buy is
+  new (deposit quoteToken, buy ETH when ETH falls to target)
+- `Order` struct: add a `side` field (`Buy`/`Sell` enum). No
+  `conditionToken` field is needed — the condition always gates on ETH's
+  price via the existing `getAssetPrice(weth)`, regardless of side. The
+  former `asset` field goes away with the multi-asset selector (see
+  Milestone 12): it was only ever a price trigger
+- `createOrder()`: branch on side — Sell keeps the `msg.value` flow, Buy
+  pulls a quoteToken deposit via `safeTransferFrom` (needs `SafeERC20`).
+  `nonReentrant` becomes mandatory here: the function's existing NatSpec
+  justifies skipping it on "no external call", which `transferFrom`
+  breaks
+- `executeOrder()`: branch swap direction (`swapExactETHForTokens` for
+  Sell, `swapExactTokensForETH` for Buy). Keeper fee stays denominated in
+  whatever the order deposited, so it never needs its own swap
+- `cancelOrder()`: ERC20 refund branch alongside the existing ETH refund
+- `_minAmountOut()`: handle both directions off the same oracle price —
+  Sell multiplies by the ETH price, Buy divides by it; the conversion
+  just flips
+- Solvency invariant: track ETH and quoteToken balances separately rather
+  than a single scalar, so a bug in one asset's accounting can't be
+  masked by the other
+- Routing unchanged: the same fixed pair, reversed for Buy
+- Test suite: unit/fork/fuzz/invariant all updated. The mock router must
+  actually `transferFrom` ERC20 input on the quoteToken→WETH direction,
+  not just mint output — a mock that only minted would leave the
+  contract's quoteToken balance untouched and the invariant would pass
+  while proving nothing
+
+**Outcome**: implemented exactly as scoped above and verified live on
+Sepolia, both directions. Redeployed (clean redeploy, no migration —
+`Order.asset` removed entirely, replaced by `side`):
+
+- **OrderKeeper**: [`0x907dC6392df5973aD82816C05E2e15F821054503`](https://sepolia.etherscan.io/address/0x907dC6392df5973aD82816C05E2e15F821054503) — verified on Sepolia Etherscan
+- **DemoUSDC**: [`0x84811D4CBE30fA5Dd42a7421D771C3fA1cD31929`](https://sepolia.etherscan.io/address/0x84811D4CBE30fA5Dd42a7421D771C3fA1cD31929) — verified on Sepolia Etherscan
+
+Live verification, three orders against the new deployment (full tx
+hashes and figures in README.md's On-Chain Activity section):
+
+- **Order #0 (Sell)**: 0.001 ETH deposited, executed successfully —
+  `GreaterOrEqual` condition on ETH price, keeper fee paid in ETH,
+  DemoUSDC paid out to the owner.
+- **Order #1 (Buy)**: created and executed against a disposable test
+  wallet while diagnosing a bug found during this verification (below) —
+  confirmed the fix before re-testing through the real frontend.
+- **Order #2 (Buy)**: created through the actual frontend UI with
+  Ricardo's own wallet, post-fix — `LessOrEqual` condition, quoteToken
+  deposited, keeper fee paid in quoteToken, ETH paid out to the owner.
+  Execution landed 4 blocks after creation (vs. 1–2 for the other two
+  orders) — `keeper-bot` correctly retried across poll cycles rather than
+  submitting once and giving up, the race/retry handling this milestone's
+  Goals called for (`EXPECTED_RACE_ERRORS` in `keeper-bot/src/keeper.ts`)
+  holding up under real conditions, not just the unit tests.
+
+**Bug found and fixed during this verification**: `frontend/src/config.ts`'s
+`quoteToken.address` was stale, still pointing at a DemoUSDC deployment
+from *before* this milestone's redeploy. Both the old and new DemoUSDC
+happen to share the symbol `mUSDC` and 6 decimals, so nothing about the
+mismatch was visible in the UI. Effect: the frontend's `approve()` call
+succeeded — just against the wrong contract — so when `createOrder()` ran
+on the real OrderKeeper, its `safeTransferFrom` found zero allowance and
+reverted. A reverted transaction emits no events, so `order-indexer`
+correctly showed nothing, which is exactly what made this tricky to
+diagnose from the indexer alone rather than the chain directly. Root-
+caused by cross-checking every address `config.ts` and `RUNBOOK.md`
+referenced against the live contract's own `quoteToken()`/`weth()` return
+values (`cast call`), not assumed from `deployments/sepolia.json` alone.
+Fixed in both files; `config.ts` now carries a comment explaining why this
+class of bug recurs on every redeploy (DemoUSDC has no canonical fixed
+address) and what to check.
+
+# Milestone 16 - Chainlink Automation as Alternative Trigger Source
 
 Status: PLANNED
 Depends on: Milestone 1, Milestone 3
@@ -316,7 +446,7 @@ Goals:
   implementing it doesn't require redesigning `executeOrder()`'s
   verification logic
 
-# Milestone 15 - Operational Monitoring/Alerting
+# Milestone 17 - Operational Monitoring/Alerting
 
 Status: PLANNED
 Depends on: Milestone 2, Milestone 3
@@ -329,7 +459,7 @@ Goals:
 - Optional hardening — relevant once either service runs somewhere
   long-lived, not required for the Sepolia MVP demo
 
-# Milestone 16 - Partial Order Fills / Additional Condition Types
+# Milestone 18 - Partial Order Fills / Additional Condition Types
 
 Status: PLANNED
 Depends on: Milestone 1
@@ -343,7 +473,7 @@ Goals:
   active order amounts) and its fuzz/invariant tests accordingly
 - Optional product expansion — not required for MVP
 
-# Milestone 17 - Mainnet or L2 Deployment
+# Milestone 19 - Mainnet or L2 Deployment
 
 Status: PLANNED
 Depends on: Milestone 1
@@ -362,8 +492,9 @@ Goals:
 
 OrderKeeper's roadmap is fulfilled when:
 
-- Users can create and cancel orders against any asset with a verified
-  Sepolia Chainlink feed, not just WETH
+- Users can place, cancel, and have executed both buy and sell limit
+  orders on the ETH/quoteToken pair — a real trade in either direction,
+  not a one-way flow
 - The frontend shows live, on-chain-sourced pricing context before a user
   commits to a condition
 - The UI works cleanly on both desktop and mobile
