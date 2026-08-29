@@ -156,6 +156,10 @@ jobs:
       - run: npm ci
       - name: Lint
         run: npm run lint
+      # No VITE_* env vars needed here either: vite.config.ts's test.env
+      # supplies safe dummy values for component tests that import
+      # config.ts for real (not every test mocks it away) — see
+      # frontend/CLAUDE.md's Testing section.
       - name: Test
         run: npm test
       # No VITE_* env vars needed here: vite build only bundles the code,
