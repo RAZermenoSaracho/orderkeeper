@@ -470,14 +470,17 @@ contract OrderKeeperTest is Test {
             / (10 ** (uint256(harness.PRICE_DECIMALS()) + 18));
         assertLe(minAmountOut, fairValueOut);
 
-        // minAmountOut is never zero for a non-zero swapAmount — except at
-        // exactly 100% slippage tolerance (MAX_SLIPPAGE_BPS), where a
-        // caller has explicitly said they'll accept any output including
-        // zero. That's correct behavior, not a bug, so it's excluded here
-        // rather than asserted away.
-        if (maxSlippageBps < harness.MAX_SLIPPAGE_BPS()) {
-            assertGt(minAmountOut, 0);
-        }
+        // Verify the exact combined-fraction result. Even below 100%
+        // slippage, the correct result can be zero when the retained value
+        // is less than one quoteToken base unit and integer division floors
+        // it to zero.
+        uint256 expectedMinAmountOut =
+            (swapAmount
+                    * executionPrice
+                    * (10 ** harness.quoteTokenDecimals())
+                    * (harness.MAX_SLIPPAGE_BPS() - maxSlippageBps))
+                / ((10 ** (uint256(harness.PRICE_DECIMALS()) + 18)) * harness.MAX_SLIPPAGE_BPS());
+        assertEq(minAmountOut, expectedMinAmountOut);
     }
 
     /// @notice Fuzz: the Buy direction's _minAmountOut is the exact inverse
