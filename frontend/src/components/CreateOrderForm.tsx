@@ -113,7 +113,12 @@ function CreateOrderForm() {
     isPending: isApprovePending,
     error: approveError,
   } = useWriteContract()
-  const { isLoading: isApproveConfirming, isSuccess: isApproved } = useWaitForTransactionReceipt({ hash: approveHash })
+  const {
+    data: approveReceipt,
+    isLoading: isApproveConfirming,
+    isSuccess: isApproveReceiptFetched,
+  } = useWaitForTransactionReceipt({ hash: approveHash })
+  const isApproved = isApproveReceiptFetched && approveReceipt?.status === 'success'
 
   // Once the approval confirms, re-read the allowance so needsApproval
   // flips and the create step unlocks without a manual refresh.
@@ -122,7 +127,13 @@ function CreateOrderForm() {
   }, [isApproved, refetchAllowance])
 
   const { writeContract, data: hash, isPending, error: writeError } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash })
+  const {
+    data: createReceipt,
+    isLoading: isConfirming,
+    isSuccess: isCreateReceiptFetched,
+  } = useWaitForTransactionReceipt({ hash })
+  const isConfirmed = isCreateReceiptFetched && createReceipt?.status === 'success'
+  const didCreateRevert = isCreateReceiptFetched && createReceipt?.status === 'reverted'
 
   function handleApprove() {
     if (parsedAmount === null || parsedAmount === 0n) {
@@ -310,6 +321,8 @@ function CreateOrderForm() {
       {writeError && (
         <p className="form-error">{writeError instanceof BaseError ? writeError.shortMessage : writeError.message}</p>
       )}
+
+      {didCreateRevert && <p className="form-error">Order creation reverted on-chain. No order was created.</p>}
 
       {isConfirmed && hash && (
         <p className="form-success">

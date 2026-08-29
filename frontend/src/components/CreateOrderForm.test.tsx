@@ -265,7 +265,7 @@ describe("CreateOrderForm", () => {
 
   test("shows a success message with an Etherscan link once the transaction confirms", () => {
     const hash = "0xbcf21a948ab0600f77496c99acfb6a8f1d5cc1f66272fa93f07c55b278dadb3a";
-    setHookStates({ create: { data: hash }, createReceipt: { isSuccess: true } });
+    setHookStates({ create: { data: hash }, createReceipt: { isSuccess: true, data: { status: "success" } } });
     render(<CreateOrderForm />);
 
     expect(screen.getByText(/Order created/)).toBeInTheDocument();
@@ -277,9 +277,18 @@ describe("CreateOrderForm", () => {
 
   test("does not show a 'Create another' button — the form stays as-is after success", () => {
     const hash = "0xbcf21a948ab0600f77496c99acfb6a8f1d5cc1f66272fa93f07c55b278dadb3a";
-    setHookStates({ create: { data: hash }, createReceipt: { isSuccess: true } });
+    setHookStates({ create: { data: hash }, createReceipt: { isSuccess: true, data: { status: "success" } } });
     render(<CreateOrderForm />);
 
     expect(screen.queryByRole("button", { name: "Create another" })).not.toBeInTheDocument();
+  });
+
+  test("shows an error instead of success when the mined transaction reverted", () => {
+    const hash = "0xbcf21a948ab0600f77496c99acfb6a8f1d5cc1f66272fa93f07c55b278dadb3a";
+    setHookStates({ create: { data: hash }, createReceipt: { isSuccess: true, data: { status: "reverted" } } });
+    render(<CreateOrderForm />);
+
+    expect(screen.getByText("Order creation reverted on-chain. No order was created.")).toBeInTheDocument();
+    expect(screen.queryByText(/Order created/)).not.toBeInTheDocument();
   });
 });
