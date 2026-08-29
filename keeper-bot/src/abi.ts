@@ -39,4 +39,8 @@ export const orderKeeperAbi = [
   { type: "error", name: "UnsupportedAsset", inputs: [{ name: "asset", type: "address" }] },
   { type: "error", name: "InvalidPrice", inputs: [] },
   { type: "error", name: "KeeperFeeTransferFailed", inputs: [] },
+  // Refund/transfer failures on the Buy side surface as plain SafeERC20
+  // reverts rather than a custom error, so there's nothing extra to decode
+  // for those — but RefundFailed still covers the Sell side's ETH refund.
+  { type: "error", name: "RefundFailed", inputs: [] },
 ] as const;
