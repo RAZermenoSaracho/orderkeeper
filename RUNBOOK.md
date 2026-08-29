@@ -16,7 +16,6 @@ gets executed automatically or on your behalf.
 - [Verify contract on Etherscan](#workflow-verify-contract-on-etherscan)
 - [End-to-end oracle loop verification](#workflow-end-to-end-oracle-loop-verification)
 - [Multiple competing keeper-bots](#workflow-multiple-competing-keeper-bots)
-- [Register additional price feeds](#workflow-register-additional-price-feeds)
 
 Add a new entry here alongside each new `## Workflow: ...` section.
 
@@ -246,30 +245,67 @@ amount of Sepolia ETH.
 ```shell
 cd contracts
 
-CONTRACT=0xe634c848941Fe06860fbF26B7F9F1E5496ed6F2b
+CONTRACT=0x907dC6392df5973aD82816C05E2e15F821054503
 WETH=0x1287B650e882514447b96a49a0f8DC1040B26d2A
+QUOTE_TOKEN=0x84811D4CBE30fA5Dd42a7421D771C3fA1cD31929
+# ^ Verify both against the live deployment before running, not just this
+#   file — deployments/sepolia.json is the source of truth, and DemoUSDC
+#   has no canonical fixed address, so it changes on every redeploy. A
+#   stale QUOTE_TOKEN here is exactly what caused the 2026-08-29 Buy-flow
+#   bug in frontend/src/config.ts: cast call $CONTRACT
+#   "quoteToken()(address)" --rpc-url sepolia to confirm.
 
 # 1. Read the live price first — never guess it.
 cast call $CONTRACT "getAssetPrice(address)(uint256)" $WETH --rpc-url sepolia
 
-# 2. Create an order with a target comfortably BELOW the live price you
-#    just read (GreaterOrEqual, so it's already true and stays true
-#    through any realistic price movement before keeper-bot picks it up).
-#    Replace TARGET_PRICE below — e.g. if live price is ~1900e18, use
-#    something like 1000000000000000000000 ($1,000).
+# 2a. SELL order (deposit ETH, sell when ETH rises). Target comfortably
+#     BELOW the live price you just read (GreaterOrEqual, so it's already
+#     true and stays true through any realistic movement before keeper-bot
+#     picks it up). Replace TARGET_PRICE — e.g. if live price is ~2450e18,
+#     use something like 1000000000000000000000 ($1,000).
+#     Args: side(0=Sell) condition(0=GTE) targetPrice amount slippageBps expiry
+#     For Sell, --value must equal the amount argument.
 cast send $CONTRACT \
-  "createOrder(address,uint8,uint256,uint256,uint256)" \
-  $WETH \
+  "createOrder(uint8,uint8,uint256,uint256,uint256,uint256)" \
+  0 \
   0 \
   TARGET_PRICE \
-  100 \
+  1000000000000000 \
+  300 \
   $(($(date +%s) + 3600)) \
   --value 0.001ether \
   --rpc-url sepolia \
   --private-key $PRIVATE_KEY
 ```
 
+To create a **BUY** order instead (deposit quoteToken, buy when ETH
+falls), approve first — the deposit is pulled with `transferFrom`, so an
+un-approved Buy will revert:
+
+```shell
+# 2b. BUY order. Two transactions: approve, then create.
+#     5000000 = 5 mUSDC (6 decimals).
+cast send $QUOTE_TOKEN "approve(address,uint256)" $CONTRACT 5000000 \
+  --rpc-url sepolia --private-key $PRIVATE_KEY
+
+#     Target comfortably ABOVE the live price (LessOrEqual = 1, so it's
+#     already true). No --value: Buy rejects attached ETH.
+cast send $CONTRACT \
+  "createOrder(uint8,uint8,uint256,uint256,uint256,uint256)" \
+  1 \
+  1 \
+  TARGET_PRICE \
+  5000000 \
+  300 \
+  $(($(date +%s) + 3600)) \
+  --rpc-url sepolia \
+  --private-key $PRIVATE_KEY
+```
+
 - [ ] Transaction receipt shows `status: 1 (success)`.
+- [ ] 300 bps (3%) slippage is used above rather than 100 — it covers the
+      0.3% Uniswap fee plus price impact against a ~1 WETH pool. See
+      ISSUES.md's resolved pool-drift entry for the measured figures.
 
 ### Step 4 — Watch `order-indexer` pick it up
 
@@ -277,10 +313,12 @@ cast send $CONTRACT \
 curl -s "http://localhost:3001/orders?status=pending"
 ```
 
-- [ ] Your new order appears, with `status: "Pending"` and the `asset`/
+- [ ] Your new order appears, with `status: "Pending"` and the `side`/
       `targetPrice`/`amount` you just set. If it doesn't appear within a
-      few seconds, check `order-indexer`'s terminal for errors (see
-      Troubleshooting).
+      few seconds, either `order-indexer` hasn't polled yet, or the
+      transaction reverted — reverted transactions emit no event, so a
+      missing order can mean "check the transaction on Etherscan," not
+      just "check `order-indexer`'s terminal" (see Troubleshooting).
 
 ### Step 5 — Watch `keeper-bot` detect and execute it
 
@@ -303,10 +341,16 @@ curl -s "http://localhost:3001/orders?status=executed"   # should now include it
 - [ ] The executed record includes `executionPrice`, `keeperFee`, and
       `amountOut`, all pulled from the real `OrderExecuted` event.
 - [ ] Both the `createOrder()` and `executeOrder()` tx hashes resolve on
-      [Sepolia Etherscan](https://sepolia.etherscan.io) — the
-      `executeOrder()` transaction shows an internal ETH transfer (the
-      keeper fee, to `keeper-bot`'s operator address) and a DemoUSDC
-      transfer (the swap output, to the order owner's address).
+      [Sepolia Etherscan](https://sepolia.etherscan.io). What the
+      `executeOrder()` transaction shows depends on `side` — the keeper
+      fee and swap output are each denominated in whatever the order
+      deposited, so they land on opposite legs for Sell vs. Buy:
+      - **Sell**: an internal ETH transfer (the keeper fee, to
+        `keeper-bot`'s operator address) and a DemoUSDC transfer (the
+        swap output, to the order owner).
+      - **Buy**: a DemoUSDC transfer (the keeper fee, to `keeper-bot`'s
+        operator address) and an internal ETH transfer (the swap output,
+        to the order owner).
 
 ### Troubleshooting
 
@@ -420,100 +464,11 @@ curl -s "http://localhost:3001/orders?status=executed"
   real bug in the contract's state transition, not an expected race; stop
   and investigate rather than re-running.
 
-## Workflow: Register additional price feeds
+**Removed 2026-08-29**: this file used to have a "Register additional
+price feeds" workflow here, for the four assets (BTC/LINK/USDC/DAI) the
+frontend's multi-asset selector once offered. Removed along with that
+selector — Milestone 12 was reverted, Milestone 15 replaced it with
+bidirectional Buy/Sell on the one WETH/quoteToken pair, and the current
+deploy script registers only WETH's feed. See `ROADMAP.md`'s Milestone 12
+Outcome note and CLAUDE.md's Design Decisions for why.
 
-Registers Chainlink feeds for the four additional assets the frontend's
-multi-asset selector offers alongside WETH — `addPriceFeed()` is
-`onlyOwner`, so these are real transactions from the deployer wallet, not
-something to run automatically. See ROADMAP.md's Milestone 12.
-
-Every address below was verified directly against Sepolia before being
-used here — `eth_getCode` to confirm it's a real contract, then `symbol()`
-(for the three real tokens) or `description()` (for the feeds) to confirm
-it's the right one. Don't add a new asset to `frontend/src/config.ts`'s
-`SUPPORTED_ASSETS` without doing the same — search results and doc pages
-have repeatedly returned mainnet addresses mislabeled as Sepolia earlier
-in this project's history; only an on-chain check is trustworthy.
-
-| Asset | `asset` address (lookup key) | Feed address |
-|---|---|---|
-| BTC | `0x505e65d08c67660dc618072422e9c78053c261e9` (synthetic — no canonical Sepolia BTC token exists; this is `keccak256("BTC")`'s last 20 bytes, same convention as Foundry's `makeAddr()`) | `0x1b44F3514812d835EB1BDB0acB33d3fA3351Ee43` |
-| LINK | `0x779877A7B0D9E8603169DdbD7836e478b4624789` (real Sepolia LINK, Chainlink's own testnet faucet token) | `0xc59E3633BAAC79493d908e63626716e204A45EdF` |
-| USDC | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` (real Sepolia USDC, Circle's official testnet deployment) | `0xA2F78ab2355fe2f984D808B5CeE7FD0A93D5270E` |
-| DAI | `0xff34b3d4aee8ddcd6f9afffb6fe49bd371b8a357` (a Sepolia token with `symbol() == "DAI"` — no single canonical issuer for Sepolia DAI, treat as "a" DAI-like token, not "the" one) | `0x14866185B1962B63C3Ea9E03Bc1da838bab34C19` |
-
-Recall `order.asset` is purely an oracle lookup key — the contract never
-calls it, never checks it's a real token (see CLAUDE.md's Design
-Decisions on `order.asset` being oracle-only). The `asset` addresses
-above only need to be stable and unique, not "real" in any deeper sense;
-BTC's is synthetic for exactly that reason.
-
-### Prerequisites
-
-- [ ] `contracts/.env` filled in, with `PRIVATE_KEY` set to the **deployer
-      key** — `addPriceFeed()` is `onlyOwner`, and the deployer is the
-      contract's owner.
-- [ ] Deployer wallet has enough Sepolia ETH for four small transactions'
-      gas.
-
-### Register each feed
-
-```shell
-cd contracts
-CONTRACT=0x2d065b6a75A207e73Cc9f76953A5886B250336FD
-
-# BTC
-cast send $CONTRACT "addPriceFeed(address,address)" \
-  0x505e65d08c67660dc618072422e9c78053c261e9 \
-  0x1b44F3514812d835EB1BDB0acB33d3fA3351Ee43 \
-  --rpc-url sepolia --private-key $PRIVATE_KEY
-
-# LINK
-cast send $CONTRACT "addPriceFeed(address,address)" \
-  0x779877A7B0D9E8603169DdbD7836e478b4624789 \
-  0xc59E3633BAAC79493d908e63626716e204A45EdF \
-  --rpc-url sepolia --private-key $PRIVATE_KEY
-
-# USDC
-cast send $CONTRACT "addPriceFeed(address,address)" \
-  0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238 \
-  0xA2F78ab2355fe2f984D808B5CeE7FD0A93D5270E \
-  --rpc-url sepolia --private-key $PRIVATE_KEY
-
-# DAI
-cast send $CONTRACT "addPriceFeed(address,address)" \
-  0xff34b3d4aee8ddcd6f9afffb6fe49bd371b8a357 \
-  0x14866185B1962B63C3Ea9E03Bc1da838bab34C19 \
-  --rpc-url sepolia --private-key $PRIVATE_KEY
-```
-
-- [ ] All four transactions show `status: 1 (success)`.
-
-### Confirm each feed is live
-
-```shell
-cast call $CONTRACT "getAssetPrice(address)(uint256)" \
-  0x505e65d08c67660dc618072422e9c78053c261e9 --rpc-url sepolia   # BTC
-cast call $CONTRACT "getAssetPrice(address)(uint256)" \
-  0x779877A7B0D9E8603169DdbD7836e478b4624789 --rpc-url sepolia   # LINK
-cast call $CONTRACT "getAssetPrice(address)(uint256)" \
-  0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238 --rpc-url sepolia   # USDC
-cast call $CONTRACT "getAssetPrice(address)(uint256)" \
-  0xff34b3d4aee8ddcd6f9afffb6fe49bd371b8a357 --rpc-url sepolia   # DAI
-```
-
-- [ ] Each returns a plausible non-zero, 18-decimal price rather than
-      reverting with `UnsupportedAsset`.
-- [ ] In the frontend (`npm run dev` in `frontend/`), the Create Order
-      form's Asset dropdown shows a live price (not "Price unavailable")
-      for each of BTC / LINK / USDC / DAI once selected.
-
-### Troubleshooting
-
-- **Reverts with `UnsupportedAsset`** — the transaction for that asset
-  either didn't land yet or used the wrong `asset` address; double-check
-  against the table above, not from memory.
-- **`addPriceFeed` reverts with an ownership error** — `PRIVATE_KEY` in
-  `contracts/.env` isn't the deployer key. Check against
-  `deployments/sepolia.json`'s deployment record, or `cast call $CONTRACT
-  "owner()(address)" --rpc-url sepolia`.
