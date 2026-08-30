@@ -47,6 +47,8 @@ contracts/cache_forge/
 # ==============================
 node_modules/
 dist/
+dist.deploy/
+dist.previous/
 build/
 *.tsbuildinfo
 npm-debug.log*

@@ -286,6 +286,14 @@ coverage with `forge coverage`.
   on the one pair that has real liquidity instead. Decided 2026-08-17,
   redesigned 2026-08-29 (Milestone 15; the reverted multi-asset selector
   is Milestone 12).
+- **Production CD uses a dedicated self-hosted GitHub Actions runner on the
+  Mac server, not inbound SSH.** A successful `CI` run for a push to `main`
+  triggers `.github/workflows/cd.yml`. The runner executes the
+  reviewed deployment script against `/Users/razs/production/orderkeeper`,
+  preserving the checkout's ignored `.env` files and reloading only the three
+  OrderKeeper PM2 applications. This keeps SSH private and avoids Docker while
+  making protected `main` and repository write access part of the production
+  security boundary. Decided 2026-08-29.
 
 ---
 
