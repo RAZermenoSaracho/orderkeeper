@@ -16,6 +16,7 @@ gets executed automatically or on your behalf.
 - [Verify contract on Etherscan](#workflow-verify-contract-on-etherscan)
 - [Fresh PostgreSQL setup or intentional legacy reset](#workflow-fresh-postgresql-setup-or-intentional-legacy-reset)
 - [Build and prepare MacBook services for PM2](#workflow-build-and-prepare-macbook-services-for-pm2)
+- [Continuous deployment to the MacBook](#workflow-continuous-deployment-to-the-macbook)
 - [End-to-end oracle loop verification](#workflow-end-to-end-oracle-loop-verification)
 - [Multiple competing keeper-bots](#workflow-multiple-competing-keeper-bots)
 
@@ -272,6 +273,120 @@ After PM2 is installed manually, start the repository-defined processes with
 command printed by `pm2 startup` during the deliberate server setup. PM2 keeps
 its normal per-process logs under `~/.pm2/logs`; no secrets belong in the
 ecosystem file.
+
+---
+
+## Workflow: Continuous deployment to the MacBook
+
+The `Deploy Production` GitHub Actions workflow runs after `CI` completes
+successfully for a push or merge to `main`. It uses a dedicated self-hosted
+runner on the production Mac, avoiding inbound SSH and Docker. Pull requests,
+failed CI runs, other branches, and manual workflow runs do not deploy.
+
+### Required one-time GitHub and server configuration
+
+- [ ] Install a dedicated repository runner manually under the same
+      non-administrator macOS account that owns
+      `/Users/razs/production/orderkeeper` and the existing PM2 daemon. PM2 is
+      per-user, so a different account would not control these applications
+      without unsafe cross-user configuration. Never run the runner as root.
+- [ ] Register it only to this repository with the labels `self-hosted`,
+      `macOS`, and `orderkeeper-production`.
+- [ ] Create a GitHub Environment named `production`. Restrict deployment
+      branches to `main`; optionally require manual approval for an additional
+      safety gate.
+- [ ] Protect `main`, require the `CI` checks, restrict who can push/merge, and
+      require review for changes under `.github/`.
+- [ ] Ensure the runner account has Node 24, npm, Git, curl, PM2, and access to
+      the Homebrew PostgreSQL instance used by `DATABASE_URL`.
+- [ ] Keep the production checkout on `main` with remote `origin` configured.
+- [ ] Confirm that account can fetch `origin` non-interactively using its
+      existing read-only deploy key or Git credential. Do not put that
+      credential in the repository or workflow.
+- [ ] Confirm `order-indexer/.env`, `keeper-bot/.env`, and `frontend/.env`
+      already exist inside the production checkout and remain ignored.
+
+No GitHub secrets are required by this design. The runner uses its registered
+outbound connection, and all application secrets remain only in the existing
+production `.env` files. The workflow does not print, copy, generate, or
+overwrite them. `VITE_INDEXER_URL=https://api-orderkeeper.razs.dev` continues
+to be loaded by Vite from `frontend/.env` during the production build.
+
+### Deployment sequence
+
+`.github/scripts/deploy-production.sh` performs these fail-fast steps:
+
+1. Verify the production checkout is clean, on `main`, and has all three `.env`
+   files.
+2. Fetch `origin/main` and fast-forward to the tested commit. It never performs
+   an automatic rollback or destructive reset.
+3. Run `npm ci`, Prisma generation, and a staged TypeScript build for the
+   indexer.
+4. Run `npm ci` and a staged TypeScript build for the keeper.
+5. Run `npm ci` and a staged Vite production build for the frontend. Vite does
+   not empty the bundle currently served by PM2 while this build runs.
+6. After every build succeeds, run `npx prisma migrate deploy`.
+7. Promote each completed `dist.deploy` directory to `dist`, retaining the
+   prior artifact as `dist.previous` for inspection.
+8. Run `pm2 startOrReload ecosystem.config.cjs --only <name> --update-env`
+   separately for `orderkeeper-indexer`, `orderkeeper-keeper`, and
+   `orderkeeper-frontend`. No unrelated PM2 application is addressed.
+9. Require successful responses from `http://127.0.0.1:3001/health` and
+   `http://127.0.0.1:4173/`.
+10. Run `pm2 save` only after both health checks pass.
+
+All dependencies and bundles are prepared while the existing processes remain
+running. Prisma production migrations are forward-only and idempotent;
+redeploying the same commit safely reruns `npm ci`, builds, and
+`prisma migrate deploy` without reapplying completed migrations.
+
+### Manual deployment
+
+From the self-hosted runner account on the Mac, deploy the current tested main
+revision with:
+
+```shell
+cd /Users/razs/production/orderkeeper
+git fetch origin main
+bash .github/scripts/deploy-production.sh "$(git rev-parse origin/main)"
+```
+
+### Inspecting failures
+
+- Open GitHub Actions → **Deploy Production** and inspect the named failing
+  step. The script exits immediately on Git, install, generation, build,
+  migration, PM2, or health-check failure.
+- On the Mac, inspect only these services with:
+
+```shell
+pm2 status
+pm2 logs orderkeeper-indexer --lines 200
+pm2 logs orderkeeper-keeper --lines 200
+pm2 logs orderkeeper-frontend --lines 200
+```
+
+Because all builds finish before reload, install/build failures leave the
+currently running processes untouched. A migration or later reload failure is
+reported but is not automatically reversed.
+
+### Safe rollback
+
+Prefer a Git revert rather than checking out an old detached commit on the
+server:
+
+```shell
+git checkout main
+git pull --ff-only origin main
+git revert <bad-commit-sha>
+git push origin main
+```
+
+The new revert commit passes CI and deploys through the same pipeline. Database
+migrations are not automatically rolled back: if a release added an
+incompatible migration, create and deploy a forward-fix migration before or
+with the code revert. For an urgent application-only rollback, run the same
+deployment script against a reviewed revert commit on `main`; never use
+`prisma migrate reset` in production.
 
 ---
 
