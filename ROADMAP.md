@@ -1,5 +1,69 @@
 # Roadmap
 
+## Table of Contents
+
+- [Product Vision](#product-vision)
+- [Current Architecture](#current-architecture)
+- [Current Product Capabilities](#current-product-capabilities)
+- [Current Development Focus](#current-development-focus)
+- Milestones — grouped by status below
+- [Success Criteria](#success-criteria)
+
+**Milestones, by status** (so it's immediately obvious what's shipped vs.
+historical vs. still ahead — each milestone's own `Status:` line is the
+source of truth if this index and that line ever disagree):
+
+<details>
+<summary><strong>Completed (14)</strong></summary>
+
+- [Milestone 1 - Contracts (Order Lifecycle + Oracle Verification)](#milestone-1---contracts-order-lifecycle--oracle-verification)
+- [Milestone 2 - Order Indexer](#milestone-2---order-indexer)
+- [Milestone 3 - Keeper Bot](#milestone-3---keeper-bot)
+- [Milestone 4 - Frontend MVP (Connect, Create, List, Cancel)](#milestone-4---frontend-mvp-connect-create-list-cancel)
+- [Milestone 5 - Verified End-to-End Run](#milestone-5---verified-end-to-end-run)
+- [Milestone 6 - Rate Limiting on Order-Indexer's Public API](#milestone-6---rate-limiting-on-order-indexers-public-api)
+- [Milestone 7 - CI Pipeline](#milestone-7---ci-pipeline)
+- [Milestone 8 - Solidity Dependency Lockfile for contracts/lib/](#milestone-8---solidity-dependency-lockfile-for-contractslib)
+- [Milestone 9 - Mobile-Responsive Layout + Component Reorganization](#milestone-9---mobile-responsive-layout--component-reorganization)
+- [Milestone 10 - Multiple Competing Keeper Bots](#milestone-10---multiple-competing-keeper-bots)
+- [Milestone 11 - Live Price Display](#milestone-11---live-price-display)
+- [Milestone 13 - Full Test Coverage (frontend / order-indexer / keeper-bot)](#milestone-13---full-test-coverage-frontend--order-indexer--keeper-bot)
+- [Milestone 14 - Continuous Deployment to Production Server](#milestone-14---continuous-deployment-to-production-server)
+- [Milestone 15 - Bidirectional Limit Orders (Buy + Sell)](#milestone-15---bidirectional-limit-orders-buy--sell)
+
+</details>
+
+<details>
+<summary><strong>Historical — shipped, then reverted (1)</strong></summary>
+
+- [Milestone 12 - Multi-Asset Selector](#milestone-12---multi-asset-selector)
+  — real, completed work; kept as history, not part of the current
+  product. See its Outcome note and the Future entry below for where
+  this direction goes next.
+
+</details>
+
+<details>
+<summary><strong>Planned (4)</strong></summary>
+
+- [Milestone 16 - Chainlink Automation as Alternative Trigger Source](#milestone-16---chainlink-automation-as-alternative-trigger-source)
+- [Milestone 17 - Operational Monitoring/Alerting](#milestone-17---operational-monitoringalerting)
+- [Milestone 18 - Partial Order Fills / Additional Condition Types](#milestone-18---partial-order-fills--additional-condition-types)
+- [Milestone 19 - Mainnet or L2 Deployment](#milestone-19---mainnet-or-l2-deployment)
+
+</details>
+
+<details>
+<summary><strong>Future / Post-Bootcamp (1)</strong></summary>
+
+- [Future / Post-Bootcamp — Multi-Token Limit Order Exchange](#future--post-bootcamp--multi-token-limit-order-exchange)
+  — not started, not scoped for the MVP; explicitly not the same thing
+  as Milestone 12 above
+
+</details>
+
+---
+
 ## Product Vision
 
 OrderKeeper is a trust-minimized limit-order keeper bot for EVM chains: I deposit
@@ -61,33 +125,44 @@ whole stack demo-ready and verifiably trust-minimized end-to-end.
 - Cancellation for pending orders
 
 **Testing & Deployment**
-- 100% test coverage on `contracts/` (76 local tests, plus the fork suite)
-  across unit, fork, fuzz, and invariant categories
+- 100% test coverage on `contracts/` (76 passed locally, 1 fork-suite
+  placeholder skipped; 81 passed with `--fork-url`) across unit, fork,
+  fuzz, and invariant categories; real automated test coverage on
+  `order-indexer/` (25), `keeper-bot/` (18), and `frontend/` (37) too —
+  see `RUNBOOK.md`'s "Run full test suite" workflow for exact current
+  commands and counts per service
 - Slither-clean `src/` — every finding triaged, fixed or
   documented-suppressed
 - Deployed and verified on Sepolia Etherscan: OrderKeeper
   `0x907dC6392df5973aD82816C05E2e15F821054503`, DemoUSDC
   `0x84811D4CBE30fA5Dd42a7421D771C3fA1cD31929`
+- Continuously deployed to production via a self-hosted GitHub Actions
+  runner (Milestone 14): frontend at
+  [orderkeeper.razs.dev](https://orderkeeper.razs.dev), indexer API at
+  [api-orderkeeper.razs.dev](https://api-orderkeeper.razs.dev)
 
 ---
 
 ## Current Development Focus
 
-**Status: ACTIVE**
+**Status: MVP COMPLETE**
 
-With Milestone 15 (bidirectional Buy/Sell orders) confirmed and shipped —
-verified live on Sepolia in both directions, including a real bug found
-and fixed mid-verification (see Milestone 15's Outcome note) — the
-product now supports genuine two-directional trading of the WETH/
-quoteToken pair, not just a one-way sell flow with a decorative asset
-selector. My focus shifts to Milestone 14, continuous deployment to a
-real production server: this one involves several real architectural
-decisions (pm2 process definitions, how GitHub Actions authenticates
-to/triggers the server, push vs. pull deploy, server-side secrets
-handling) I still need to make before implementation starts, per
-CLAUDE.md's Architectural Decision Documentation rule.
+All bootcamp-scope milestones (1–15) are shipped and verified: bidirectional
+Buy/Sell orders on the WETH/quoteToken pair, full test coverage across all
+four components, and continuous deployment to a real production server
+(`orderkeeper.razs.dev` / `api-orderkeeper.razs.dev`, kept live by
+`.github/workflows/cd.yml` on every push to `main`). Milestone 15
+specifically replaced the earlier one-way Sell flow with genuine
+two-directional trading, including a real bug found and fixed mid-
+verification (see its Outcome note).
 
-# Milestone 1 - Contracts (Order Lifecycle + Oracle Verification)
+Remaining milestones (16–19, plus the future multi-token exchange work at
+the end of this file) are optional post-bootcamp hardening and product
+expansion, not required for the MVP — none is currently in active
+development. The next one picked up will be chosen deliberately, not
+defaulted to by list order.
+
+## Milestone 1 - Contracts (Order Lifecycle + Oracle Verification)
 
 Status: COMPLETED
 
@@ -99,7 +174,7 @@ Goals:
 - Reach a Slither-clean state on `src/`
 - Deploy and verify on Sepolia Etherscan
 
-# Milestone 2 - Order Indexer
+## Milestone 2 - Order Indexer
 
 Status: COMPLETED
 
@@ -111,7 +186,7 @@ Goals:
 - Replace filter-based `watchContractEvent` with direct `eth_getLogs`
   polling for live events
 
-# Milestone 3 - Keeper Bot
+## Milestone 3 - Keeper Bot
 
 Status: COMPLETED
 
@@ -122,7 +197,7 @@ Goals:
 - Hold an operator private key separate from user funds and the
   `contracts/` deployer key
 
-# Milestone 4 - Frontend MVP (Connect, Create, List, Cancel)
+## Milestone 4 - Frontend MVP (Connect, Create, List, Cancel)
 
 Status: COMPLETED
 Depends on: Milestone 1, Milestone 2
@@ -134,7 +209,7 @@ Goals:
 - Order list scoped to the connected wallet
 - Cancellation for pending orders
 
-# Milestone 5 - Verified End-to-End Run
+## Milestone 5 - Verified End-to-End Run
 
 Status: COMPLETED
 Depends on: Milestone 1, Milestone 2, Milestone 3, Milestone 4
@@ -146,7 +221,7 @@ Goals:
 - Exercise the slippage guard for real: a 100 bps order reverted with
   `INSUFFICIENT_OUTPUT_AMOUNT`, a 3000 bps order executed successfully
 
-# Milestone 6 - Rate Limiting on Order-Indexer's Public API
+## Milestone 6 - Rate Limiting on Order-Indexer's Public API
 
 Status: COMPLETED
 Depends on: Milestone 2
@@ -157,7 +232,7 @@ Goals:
 - Prevent abuse/DoS on a service that has no auth and is intended to run
   publicly
 
-# Milestone 7 - CI Pipeline
+## Milestone 7 - CI Pipeline
 
 Status: COMPLETED
 Depends on: Milestone 1
@@ -170,7 +245,7 @@ Goals:
 - Closes the gap between `ci` already being a defined type in CLAUDE.md's
   Commit Convention and no workflow actually existing yet
 
-# Milestone 8 - Solidity Dependency Lockfile for contracts/lib/
+## Milestone 8 - Solidity Dependency Lockfile for contracts/lib/
 
 Status: COMPLETED
 Depends on: Milestone 1
@@ -189,7 +264,7 @@ Goals:
   Foundry's `soldeer`, or equivalent — so all of `contracts/lib/`,
   including v2-periphery, is exactly reproducible across machines and CI
 
-# Milestone 9 - Mobile-Responsive Layout + Component Reorganization
+## Milestone 9 - Mobile-Responsive Layout + Component Reorganization
 
 Status: COMPLETED
 Depends on: Milestone 4
@@ -200,7 +275,7 @@ Goals:
 - Move loose component files (`App.tsx`, `CreateOrderForm.tsx`,
   `OrderList.tsx`) into `frontend/src/components/`
 
-# Milestone 10 - Multiple Competing Keeper Bots
+## Milestone 10 - Multiple Competing Keeper Bots
 
 Status: COMPLETED
 Depends on: Milestone 3
@@ -215,7 +290,7 @@ Goals:
   a keeper-bot and compete for the fee — which has so far only ever been
   tested with a single instance
 
-# Milestone 11 - Live Price Display
+## Milestone 11 - Live Price Display
 
 Status: COMPLETED
 Depends on: Milestone 4
@@ -233,9 +308,11 @@ Goals:
   `order-indexer` backfill, so multiple open tabs may need their own
   backoff
 
-# Milestone 12 - Multi-Asset Selector
+## Milestone 12 - Multi-Asset Selector
 
-Status: COMPLETED, then SUPERSEDED (reverted 2026-08-29)
+Status: HISTORICAL — SHIPPED THEN REVERTED (2026-08-29). Not part of the
+current product; see the "Future / Post-Bootcamp" milestone at the end of
+this file for where this direction goes next.
 Depends on: Milestone 4
 
 Goals:
@@ -295,7 +372,12 @@ The feed addresses in the table above remain valid and are worth keeping
 for any future multi-asset work; what was missing was never the feeds, it
 was the pools.
 
-# Milestone 13 - Full Test Coverage (frontend / order-indexer / keeper-bot)
+Genuine multi-token/multi-pair trading — the thing this milestone gestured
+at but never delivered — is tracked as explicit future work, not current
+or completed scope: see "Future / Post-Bootcamp — Multi-Token Limit Order
+Exchange" at the end of this file.
+
+## Milestone 13 - Full Test Coverage (frontend / order-indexer / keeper-bot)
 
 Status: COMPLETED
 
@@ -335,9 +417,9 @@ refactor didn't change production behavior. `.github/workflows/ci.yml`'s
 (built before either service had tests) — added, matching
 `order-indexer`'s existing pattern.
 
-# Milestone 14 - Continuous Deployment to Production Server
+## Milestone 14 - Continuous Deployment to Production Server
 
-Status: PLANNED
+Status: COMPLETED
 
 Goals:
 - Deploy the full stack (frontend, order-indexer, keeper-bot) to
@@ -351,7 +433,28 @@ Goals:
   server — per CLAUDE.md's Architectural Decision Documentation rule,
   ask before implementing rather than guessing
 
-# Milestone 15 - Bidirectional Limit Orders (Buy + Sell)
+**Outcome**: shipped as a dedicated self-hosted GitHub Actions runner on
+the production Mac, not inbound SSH or Docker (the decision recorded in
+CLAUDE.md's Design Decisions, 2026-08-29). `.github/workflows/cd.yml`
+triggers `.github/scripts/deploy-production.sh` after `CI` succeeds on a
+push to `main`; the script builds all three services, applies Prisma
+migrations, reloads only the three OrderKeeper PM2 apps
+(`ecosystem.config.cjs`), and gates on both services' health checks
+before saving the new PM2 state. No GitHub secrets are required — the
+runner uses its own outbound access, and all application secrets stay in
+the production checkout's own gitignored `.env` files, never touched by
+the workflow. Fully documented, including manual deploy/rollback and
+failure triage, in `RUNBOOK.md`'s "Continuous deployment to the MacBook"
+workflow.
+
+Live and publicly reachable as of this writing: frontend at
+[orderkeeper.razs.dev](https://orderkeeper.razs.dev), indexer API at
+[api-orderkeeper.razs.dev](https://api-orderkeeper.razs.dev) (confirmed via
+its `/health` endpoint). Production is a separate Git checkout from any
+local development copy, kept on `main` and updated only through this
+pipeline.
+
+## Milestone 15 - Bidirectional Limit Orders (Buy + Sell)
 
 Status: COMPLETED
 
@@ -429,7 +532,7 @@ Fixed in both files; `config.ts` now carries a comment explaining why this
 class of bug recurs on every redeploy (DemoUSDC has no canonical fixed
 address) and what to check.
 
-# Milestone 16 - Chainlink Automation as Alternative Trigger Source
+## Milestone 16 - Chainlink Automation as Alternative Trigger Source
 
 Status: PLANNED
 Depends on: Milestone 1, Milestone 3
@@ -445,7 +548,7 @@ Goals:
   implementing it doesn't require redesigning `executeOrder()`'s
   verification logic
 
-# Milestone 17 - Operational Monitoring/Alerting
+## Milestone 17 - Operational Monitoring/Alerting
 
 Status: PLANNED
 Depends on: Milestone 2, Milestone 3
@@ -458,7 +561,7 @@ Goals:
 - Optional hardening — relevant once either service runs somewhere
   long-lived, not required for the Sepolia MVP demo
 
-# Milestone 18 - Partial Order Fills / Additional Condition Types
+## Milestone 18 - Partial Order Fills / Additional Condition Types
 
 Status: PLANNED
 Depends on: Milestone 1
@@ -472,7 +575,7 @@ Goals:
   active order amounts) and its fuzz/invariant tests accordingly
 - Optional product expansion — not required for MVP
 
-# Milestone 19 - Mainnet or L2 Deployment
+## Milestone 19 - Mainnet or L2 Deployment
 
 Status: PLANNED
 Depends on: Milestone 1
@@ -487,7 +590,50 @@ Goals:
 
 ---
 
-# Success Criteria
+## Future / Post-Bootcamp — Multi-Token Limit Order Exchange
+
+Status: FUTURE / POST-BOOTCAMP — not started, not scoped for the MVP
+Depends on: Milestone 15 (the MVP's bidirectional Buy/Sell foundation)
+
+**Not implemented. Nothing below describes current behavior.** The
+current MVP intentionally validates the architecture on a single, fixed
+trading pair — ETH/WETH ↔ `quoteToken` (DemoUSDC/`mUSDC` on the current
+Sepolia deployment) — traded in both directions. There is no per-order
+asset selector and no multi-token exchange today; see Milestone 12 above
+for the earlier attempt at this, why it was reverted, and why validating
+one real pair first was the right sequencing rather than a shortcut.
+
+This entry is the deliberate home for that direction once the MVP is
+done, not a restatement of Milestone 12. Genuinely new work required,
+none of it started:
+
+- **Generalized token pairs** — `Order` currently hardcodes `weth` and
+  `quoteToken`; supporting arbitrary pairs means the contract (or a
+  registry it consults) needs to know, per pair, which tokens are
+  actually tradeable — not just priced.
+- **Per-order asset/pair selection** — a real frontend selector, unlike
+  Milestone 12's, would need every offered pair to be genuinely
+  executable, not just priced by an oracle.
+- **Additional oracle feeds per asset** — Milestone 12's research (feed
+  addresses, verified live against Sepolia) remains valid and reusable
+  here; feeds were never the blocker.
+- **Liquidity validation per pair** — Milestone 12's revert surfaced the
+  real blocker: no Uniswap V2 pool exists for LINK on Sepolia at all, and
+  the WBTC pool that does exist is mispriced ~47% against its oracle. Any
+  future pair needs this checked directly on-chain before being offered,
+  not assumed from a token existing.
+- **Slippage/execution-safety implications of multiple pools** — each
+  additional pair inherits its own version of the liquidity-depth and
+  drift considerations documented in README.md's "Accepted MVP slippage
+  tolerance limitation," which only has to reason about one pool today.
+
+Do not treat any of the above as implemented, in progress, or scheduled —
+this section exists so the direction has a documented, honest home, not
+to imply it is coming next.
+
+---
+
+## Success Criteria
 
 OrderKeeper's roadmap is fulfilled when:
 

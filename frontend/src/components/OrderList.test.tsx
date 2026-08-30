@@ -68,7 +68,17 @@ function renderOrderList() {
     </QueryClientProvider>
   );
   const result = render(buildUi());
-  return { ...result, rerenderOrderList: () => result.rerender(buildUi()) };
+  return { ...result, queryClient, rerenderOrderList: () => result.rerender(buildUi()) };
+}
+
+/// A promise the test controls the resolution of, so a fetch can be left
+/// "in flight" long enough to assert on the button's mid-fetch label.
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
 }
 
 beforeEach(() => {
@@ -284,6 +294,55 @@ describe("OrderList", () => {
     // A successful useWaitForTransactionReceipt (mocked as already-true)
     // should trigger exactly one extra fetch beyond the initial load.
     await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2));
+  });
+
+  test("a background refetch (e.g. the polling interval) does not change the Refresh button's label", async () => {
+    const page = () => ({ ok: true, status: 200, json: async () => ({ data: [baseOrder({ orderId: 1 })], meta: { count: 1 } }) });
+    const background = deferred<ReturnType<typeof page>>();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(page()).mockReturnValueOnce(background.promise),
+    );
+
+    const { queryClient } = renderOrderList();
+    await screen.findByText(/#1\b/);
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
+
+    // Simulate a background refetch triggered by something other than the
+    // button — the polling interval, a window-focus refetch, etc. all go
+    // through this same react-query path, not through handleManualRefresh.
+    const backgroundRefetch = queryClient.refetchQueries({
+      queryKey: ["orders", CONNECTED_ADDRESS.toLowerCase()],
+    });
+
+    // While that background fetch is still in flight, the button must
+    // still read "Refresh" — this is the exact glitch being fixed: it
+    // used to flip to "Refreshing..." on every ~10s poll.
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Refreshing..." })).not.toBeInTheDocument();
+
+    background.resolve(page());
+    await backgroundRefetch;
+
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
+  });
+
+  test("clicking Refresh manually shows a temporary 'Refreshing...' label", async () => {
+    const page = () => ({ ok: true, status: 200, json: async () => ({ data: [baseOrder({ orderId: 1 })], meta: { count: 1 } }) });
+    const manual = deferred<ReturnType<typeof page>>();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(page()).mockReturnValueOnce(manual.promise));
+
+    const user = userEvent.setup();
+    renderOrderList();
+    await screen.findByText(/#1\b/);
+
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+
+    expect(await screen.findByRole("button", { name: "Refreshing..." })).toBeInTheDocument();
+
+    manual.resolve(page());
+
+    expect(await screen.findByRole("button", { name: "Refresh" })).toBeInTheDocument();
   });
 
   test("shows a fetch failure instead of crashing", async () => {

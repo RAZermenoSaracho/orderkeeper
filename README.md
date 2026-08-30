@@ -2,6 +2,17 @@
 
 A decentralized limit-order keeper bot for EVM chains. Users deposit funds and define a price condition (e.g. "sell 1 ETH when price >= $4,000"); an off-chain keeper bot monitors Chainlink price feeds and automatically executes the swap via Uniswap when the condition is met, earning a small fee for the service.
 
+## Table of Contents
+
+- [Problem Statement](#problem-statement)
+- [Why This Project](#why-this-project)
+- [Architecture](#architecture)
+- [Design Decisions](#design-decisions)
+- [Security Considerations](#security-considerations)
+- [Known Limitations & Tradeoffs](#known-limitations--tradeoffs)
+- [On-Chain Activity](#on-chain-activity)
+- [Testing Plan](#testing-plan)
+
 ---
 
 ## Problem Statement
@@ -61,43 +72,13 @@ Listens for `OrderCreated` / `OrderExecuted` / `OrderCancelled` events, persists
 - **Read-only**: never sends transactions, never holds a private key — smaller attack surface by design. It only serves reads of indexed history; it never sits in the write path — order creation and cancellation go directly from the frontend to the contract
 
 ### 3. `keeper-bot/` — Executor
-Polls `order-indexer`'s REST API for pending orders (see Design Decisions), then re-checks each one's price condition via the contract's own `checkPriceCondition()` — a free `eth_call`, not an independent Chainlink read — before calling `executeOrder()`. This keeps the off-chain trigger logic from ever silently drifting apart from what `executeOrder()` itself re-verifies.
+Polls `order-indexer`'s REST API for pending orders (see [Design Decisions](#design-decisions)), then re-checks each one's price condition via the contract's own `checkPriceCondition()` — a free `eth_call`, not an independent Chainlink read — before calling `executeOrder()`. This keeps the off-chain trigger logic from ever silently drifting apart from what `executeOrder()` itself re-verifies.
 - **Stack**: Node.js, TypeScript, viem — holds its own operator private key (separate from user funds) to sign and send execution transactions
 
 ### 4. `frontend/` — User interface
 Wallet connection, order creation/cancellation, and a wallet-scoped **My Orders** history/status view. The owner filter is a UX convenience, not privacy or authentication; Sepolia activity remains public.
 - **Stack**: React + Vite + TypeScript (pure SPA, no SSR), viem, wagmi for wallet connection
 - **Direct-to-contract writes**: order creation and cancellation are signed by the user's wallet and sent straight to the contract via wagmi/viem — the frontend talks to `order-indexer` only to read order history
-
----
-
-## Security Considerations
-
-- **Access control**: only the order owner can cancel their own order
-- **Reentrancy protection**: `ReentrancyGuard` on any function moving funds; strict checks-effects-interactions ordering
-- **Oracle trust boundary**: execution price is verified on-chain via Chainlink at execution time — the keeper bot is never trusted as a price source, only as a trigger
-- **Key isolation**: the keeper bot's operator key is fully separate from user funds and from the indexer (which holds no key at all)
-- **Owner-controlled oracle configuration**: the contract owner can replace the WETH price-feed address. Users therefore trust the owner not to install a malicious, invalid, or permanently stale feed; users retain the ability to cancel pending orders, and swap slippage remains bounded by each order.
-
-### Practical MVP numeric domain
-
-The EVM ABI permits theoretical `uint256` values far beyond realistic order
-economics. The indexer preserves amount and price values exactly in
-`NUMERIC(78,0)`, but deliberately supports order IDs only through PostgreSQL's
-signed `INTEGER` maximum and expiries within JavaScript's representable Date
-range. Encountering a value outside that application domain fails indexing
-clearly and leaves the block checkpoint unchanged; it is never truncated,
-rounded, or silently skipped. This off-chain limitation does not change the
-deployed contract's interface or behavior.
-
-### Accepted MVP finality limitation
-
-The indexer intentionally processes the latest available Sepolia block with
-zero confirmation delay so new and executed orders appear quickly during the
-demo. It does not store block hashes or roll back database state after a chain
-reorganization. A reorg can therefore diverge the indexed view from canonical
-chain history. Confirmation-depth indexing and block-hash reconciliation are
-post-MVP reliability work.
 
 ---
 
@@ -113,7 +94,7 @@ deliberately keeps them separate:
 - **(b) Where the price is verified before funds move** — this is
   non-negotiable and always happens on-chain, inside `executeOrder()`,
   directly against Chainlink. See [Security Considerations](#security-considerations)
-  above for the full reasoning; in short, the keeper bot is trusted only as
+  below for the full reasoning; in short, the keeper bot is trusted only as
   a trigger, never as a price source, so nothing about (a) can ever weaken
   (b).
 
@@ -184,6 +165,130 @@ still resolved from the Uniswap router's own `WETH()` at construction and
 immutable from then on, so the swap path can never drift from what the
 router itself requires. Decided 2026-08-17, redesigned 2026-08-29
 (Milestone 15).
+
+---
+
+## Security Considerations
+
+- **Access control**: only the order owner can cancel their own order
+- **Reentrancy protection**: `ReentrancyGuard` on any function moving funds; strict checks-effects-interactions ordering
+- **Oracle trust boundary**: execution price is verified on-chain via Chainlink at execution time — the keeper bot is never trusted as a price source, only as a trigger
+- **Key isolation**: the keeper bot's operator key is fully separate from user funds and from the indexer (which holds no key at all)
+- **Owner-controlled oracle configuration**: the contract owner can replace the WETH price-feed address. Users therefore trust the owner not to install a malicious, invalid, or permanently stale feed; users retain the ability to cancel pending orders, and swap slippage remains bounded by each order.
+
+---
+
+## Known Limitations & Tradeoffs
+
+### Practical MVP numeric domain
+
+The EVM ABI permits theoretical `uint256` values far beyond realistic order
+economics. The indexer preserves amount and price values exactly in
+`NUMERIC(78,0)`, but deliberately supports order IDs only through PostgreSQL's
+signed `INTEGER` maximum and expiries within JavaScript's representable Date
+range. Encountering a value outside that application domain fails indexing
+clearly and leaves the block checkpoint unchanged; it is never truncated,
+rounded, or silently skipped. This off-chain limitation does not change the
+deployed contract's interface or behavior.
+
+### Accepted MVP finality limitation
+
+The indexer intentionally processes the latest available Sepolia block with
+zero confirmation delay so new and executed orders appear quickly during the
+demo. It does not store block hashes or roll back database state after a chain
+reorganization. A reorg can therefore diverge the indexed view from canonical
+chain history. Confirmation-depth indexing and block-hash reconciliation are
+post-MVP reliability work.
+
+### Accepted MVP slippage tolerance limitation
+
+Manual Sepolia testing has empirically needed `maxSlippageBps` around 3000
+(30%) for reliable execution — far above what a real order would ever
+reasonably use. This is a testnet liquidity artifact, not a property of
+`OrderKeeper` itself; tracing the actual formula and live pool state below
+shows why, rather than asserting it.
+
+**Two protections that are easy to conflate, and are not the same thing:**
+
+- **Price condition (the trigger)**: `executeOrder()` re-reads Chainlink via
+  `getAssetPrice(weth)` and only proceeds if `order.condition` holds against
+  `order.targetPrice`. This is the non-negotiable trust boundary described in
+  [Security Considerations](#security-considerations) — it decides *whether*
+  an order is allowed to execute at all.
+- **Execution slippage protection (`maxSlippageBps`)**: separately,
+  `_minAmountOut()` computes the minimum acceptable Uniswap output —
+  `amountOutMin` — from that same Chainlink price, assuming `quoteToken` is
+  USD-pegged 1:1, then discounts it by `maxSlippageBps`. This decides whether
+  the swap's *actual* output was close enough to that oracle-derived fair
+  value to be worth executing. It never queries Uniswap's own quote for this
+  — only Chainlink.
+
+Both gate on Chainlink; `amountOutMin` never trusts the pool's own price. That
+matters here because it means a poor deal against Uniswap always shows up as
+a real revert (`INSUFFICIENT_OUTPUT_AMOUNT`), never a silently-accepted bad
+fill.
+
+**Why that produces a real gap on Sepolia.** `_minAmountOut()` assumes the
+pool would fill at (approximately) the oracle price. On a real, arbitraged
+DEX pool that's a reasonable assumption. The Sepolia WETH/`quoteToken` pool
+this MVP seeds is not arbitraged — nothing trades it except this project's
+own test orders — so its reserves can sit away from the oracle price
+indefinitely, and it is shallow (recorded here as an explicit measurement,
+not carried forward as a permanent number, since it moves with every trade
+and every `DeployOrderKeeper.s.sol` reseed): roughly 1 WETH deep at the time
+of writing. A real Uniswap V2 swap against a pool that size incurs
+significant constant-product price impact (`x*y=k`, plus the pool's own 0.3%
+fee) for any order that isn't tiny relative to the pool — on top of whatever
+the reserve ratio has drifted from Chainlink.
+
+Measured directly against the live pool while writing this section (state at
+that moment; both numbers move over time):
+
+- Pool reserves implied an ETH price roughly 3.4% above the live Chainlink
+  read.
+- A small Sell (0.001 ETH) executed within 1% slippage — the drift happened
+  to favor that direction at that size.
+- A small Buy (5 `quoteToken`) needed slippage above 3% and below 10% to
+  clear — the same drift works against Buy, since the pool was priced richer
+  in ETH than the oracle.
+- A Buy roughly 100x larger (500 `quoteToken`, still under half the pool's
+  own depth) needed slippage in the 20%+ range purely from price impact,
+  independent of the drift above.
+
+So the ~30% figure that has worked reliably in practice isn't a fixed
+constant OrderKeeper requires — it's headroom wide enough to absorb whatever
+combination of drift and price impact a given manual test order happens to
+hit, on a pool this shallow and unarbitraged. Smaller orders on a
+favorably-drifted day can clear on single-digit percent tolerance, as shown
+above; the same order type on a different day, or a larger order any day,
+can need much more.
+
+**This is a testnet-only workaround, not a production policy.** A mainnet or
+liquid-L2 deployment (see `ROADMAP.md`'s Mainnet/L2 milestone) would sit
+against real, continuously-arbitraged liquidity, where the gap between
+Chainlink and the pool's executable price stays consistently narrow — a
+production deployment should use a materially tighter `maxSlippageBps`
+appropriate to that liquidity, not copy the Sepolia testing value forward.
+
+**Two contributing factors worth naming explicitly:**
+
+- `DemoUSDC.mint()` is deliberately unrestricted (see
+  `contracts/src/DemoUSDC.sol`) — anyone can mint arbitrary `quoteToken` and
+  add or remove it from the pool, which is a further, testnet-only way this
+  pool's price can move independently of Chainlink. Never deploy `DemoUSDC`
+  itself to mainnet.
+- `maxSlippageBps` is bounded by `MAX_SLIPPAGE_BPS = 10_000` (100%).
+  `_minAmountOut()`'s `slippageNumerator = MAX_SLIPPAGE_BPS - maxSlippageBps`
+  is exactly `0` when `maxSlippageBps` is `10_000`, so `amountOutMin` is
+  computed as `0` — the swap accepts any nonzero output. That extreme is
+  never necessary on the current pool (the measurements above show the real
+  requirement tops out well below it) and removes output protection
+  entirely; it exists because the contract trusts the caller's own stated
+  tolerance, not because any value up to it is a reasonable choice.
+
+See [ISSUES.md](ISSUES.md) for the dated history of this pool's drift
+measurements, and `RUNBOOK.md`'s end-to-end workflow for a concrete example
+order.
 
 ---
 
@@ -291,8 +396,9 @@ verification run after it describe the previous, single-direction
 orders. Kept as a historical record rather than deleted; they do not
 describe the current deployment.
 
-Redeployed after the `order.asset`/swap-path fix (see Design Decisions
-below). Both contracts are verified on Sepolia Etherscan:
+Redeployed after the `order.asset`/swap-path fix (see [Design
+Decisions](#design-decisions) above). Both contracts are verified on
+Sepolia Etherscan:
 
 - **OrderKeeper**: [`0x2d065b6a75A207e73Cc9f76953A5886B250336FD`](https://sepolia.etherscan.io/address/0x2d065b6a75A207e73Cc9f76953A5886B250336FD)
 - **DemoUSDC**: [`0xDB7B8e1c83b14e3E4585FFb2b03088c0520b0568`](https://sepolia.etherscan.io/address/0xDB7B8e1c83b14e3E4585FFb2b03088c0520b0568)
@@ -351,9 +457,9 @@ local verification it was fixed against.
 ### Historical: first verified end-to-end run (2026-08-17)
 
 **Superseded** — this run was against the previous contract deployment,
-before the `order.asset`/swap-path fix (see Design Decisions below).
-Kept here as a historical record rather than deleted; it does not
-describe the current deployment above.
+before the `order.asset`/swap-path fix (see [Design
+Decisions](#design-decisions) above). Kept here as a historical record
+rather than deleted; it does not describe the current deployment above.
 
 **Verified end-to-end (2026-08-17)**: a 0.001 ETH order with a
 trivially-true condition (target price $1,000, live price ~$1,907) was

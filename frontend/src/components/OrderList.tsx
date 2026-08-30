@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAccount, useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
 import { BaseError, formatUnits } from 'viem'
@@ -102,7 +102,6 @@ function OrderList() {
     isLoading,
     error,
     refetch,
-    isFetching,
   } = useQuery({
     queryKey: ['orders', address?.toLowerCase()],
     queryFn: () => fetchOrders(address!),
@@ -111,6 +110,27 @@ function OrderList() {
     // default: refetchIntervalInBackground is false).
     refetchInterval: POLL_INTERVAL_MS,
   })
+
+  // react-query's own isFetching/isRefetching are true for BOTH the
+  // refetchInterval poll above and a user-initiated refetch() — there's no
+  // built-in way to tell them apart. Driving the button off isFetching made
+  // it flip to "Refreshing..." every 10s even though nothing the user did
+  // caused it, which read as the UI glitching on a timer. Tracking the
+  // manual click as its own local flag keeps polling silent while still
+  // giving a manual click its own visible feedback. Existing order data
+  // stays on screen throughout either kind of refetch regardless — react
+  // query only clears `data` when the query key itself changes, not on a
+  // routine refetch.
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false)
+
+  async function handleManualRefresh() {
+    setIsManualRefreshing(true)
+    try {
+      await refetch()
+    } finally {
+      setIsManualRefreshing(false)
+    }
+  }
 
   // orderId increments monotonically on-chain (see OrderKeeper.nextOrderId),
   // so sorting by it descending is a reliable newest-first ordering
@@ -128,8 +148,8 @@ function OrderList() {
       <div className="order-list-header">
         <h2>My Orders</h2>
         {address && (
-          <button type="button" onClick={() => refetch()} disabled={isFetching}>
-            {isFetching ? 'Refreshing...' : 'Refresh'}
+          <button type="button" onClick={handleManualRefresh} disabled={isManualRefreshing}>
+            {isManualRefreshing ? 'Refreshing...' : 'Refresh'}
           </button>
         )}
       </div>

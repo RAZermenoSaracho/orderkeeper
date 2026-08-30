@@ -9,7 +9,7 @@ new one is needed, rather than starting a new file per workflow.
 **These are checklists for you to run yourself.** Nothing in this file
 gets executed automatically or on your behalf.
 
-## Contents
+## Table of Contents
 
 - [Run full test suite](#workflow-run-full-test-suite)
 - [Deploy contracts](#workflow-deploy-contracts)
@@ -59,11 +59,13 @@ forge test --match-test testFuzz -vv
 forge coverage
 ```
 
-**Expected results** (as of 2026-08-29, after Milestone 15's Buy/Sell
-redesign — if your numbers differ, that's a signal to investigate what
-changed, not necessarily a problem):
+**Expected results** (as of 2026-08-30 — if your numbers differ, that's a
+signal to investigate what changed, not necessarily a problem):
 
-- [ ] Unit: `72 passed; 0 failed` (`OrderKeeperTest`: 62, `DemoUSDCTest`: 10).
+- [ ] Unit: `73 passed; 0 failed` (`OrderKeeperTest`: 62, `DemoUSDCTest`:
+      10, `DeployOrderKeeperTest`: 1 — the `--match-contract` pattern
+      above matches all three; `DeployOrderKeeperTest` tests deploy-script
+      behavior, not `OrderKeeper` itself, but is unit-scoped the same way).
 - [ ] Invariant: `3 passed; 0 failed` — `invariant_EthSolvencyMatchesPendingSellOrders`,
       `invariant_QuoteSolvencyMatchesPendingBuyOrders`, and
       `invariant_NoStrandedRouterAllowance`, each 256 runs / 128,000
@@ -74,7 +76,7 @@ changed, not necessarily a problem):
 - [ ] Coverage: `src/OrderKeeper.sol` and `src/DemoUSDC.sol` both 100%
       lines/statements/branches/functions.
 - [ ] Plain `forge test` with no flags (fork suite self-skips without
-      `--fork-url`): `75 passed; 0 failed; 1 skipped` (`76` total —
+      `--fork-url`): `76 passed; 0 failed; 1 skipped` (`77` total —
       Foundry reports the whole self-skipped fork file as one skipped
       unit, not five).
 
@@ -84,11 +86,11 @@ changed, not necessarily a problem):
 cd order-indexer && npm test   # or: cd keeper-bot / cd frontend
 ```
 
-**Expected results** (as of 2026-08-29):
+**Expected results** (as of 2026-08-30):
 
 - [ ] `order-indexer`: `25 passed` (3 test files).
 - [ ] `keeper-bot`: `18 passed` (3 test files).
-- [ ] `frontend`: `35 passed` (3 test files).
+- [ ] `frontend`: `37 passed` (3 test files).
 
 ---
 
@@ -483,7 +485,7 @@ cast send $CONTRACT \
   0 \
   TARGET_PRICE \
   1000000000000000 \
-  300 \
+  3000 \
   $(($(date +%s) + 3600)) \
   --value 0.001ether \
   --rpc-url sepolia \
@@ -508,16 +510,23 @@ cast send $CONTRACT \
   1 \
   TARGET_PRICE \
   5000000 \
-  300 \
+  3000 \
   $(($(date +%s) + 3600)) \
   --rpc-url sepolia \
   --private-key $PRIVATE_KEY
 ```
 
 - [ ] Transaction receipt shows `status: 1 (success)`.
-- [ ] 300 bps (3%) slippage is used above rather than 100 — it covers the
-      0.3% Uniswap fee plus price impact against a ~1 WETH pool. See
-      ISSUES.md's resolved pool-drift entry for the measured figures.
+- [ ] 3000 bps (30%) slippage is used above, not a realistic order's
+      tolerance — this Sepolia pool is shallow and unarbitraged, so the
+      actual requirement varies by order size and direction and can
+      legitimately range from single-digit percent to this much. See
+      README.md's "Accepted MVP slippage tolerance limitation" for why,
+      traced from the actual formula and live pool state, and ISSUES.md's
+      pool-drift entry for the measurement history. Don't shrink this
+      value for a "cleaner" demo without re-checking the live pool first
+      — a tighter value can revert unpredictably depending on which way
+      the pool has drifted that day.
 
 ### Step 4 — Watch `order-indexer` pick it up
 
@@ -581,11 +590,13 @@ curl -s "http://localhost:3001/orders?status=executed"   # should now include it
 - **`executeOrder()` reverts with `UniswapV2Router: INSUFFICIENT_OUTPUT_AMOUNT`
   even though the condition is clearly met** — the WETH/DemoUSDC pool's own
   reserves ratio can drift from the live oracle price over time (no
-  arbitrage bots trade this testnet pool). If the gap exceeds your order's
+  arbitrage bots trade this testnet pool), and price impact against its
+  shallow depth compounds the same way. If the gap exceeds your order's
   `maxSlippageBps`, the swap correctly refuses to execute at a bad price —
-  that's the slippage protection working as designed, not a bug. Either
-  accept a wider `maxSlippageBps` for testing, or add more liquidity to
-  rebalance the pool.
+  that's the slippage protection working as designed, not a bug. See
+  README.md's "Accepted MVP slippage tolerance limitation" for the traced
+  mechanism. Either accept a wider `maxSlippageBps` for testing, or add
+  more liquidity to rebalance the pool.
 - **`prisma` complains about authentication** — `DATABASE_URL` in
   `order-indexer/.env` needs an explicit username under Homebrew
   Postgres's peer/trust auth — see the comment in that file's

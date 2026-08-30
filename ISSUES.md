@@ -12,7 +12,7 @@ when adding a new entry.
 
 ---
 
-### [OPEN] Link Module 13 RWAAssetToken reference once published
+## [OPEN] Link Module 13 RWAAssetToken reference once published
 
 - **Component**: docs
 - **Discovered**: 2026-08-16 — while drafting the oracle Design Decisions
@@ -30,14 +30,20 @@ keeper-bot decision is independently checkable.
 
 ---
 
-### [RESOLVED] Sepolia WETH/DemoUSDC pool had drifted ~24% from live oracle price
+## [RECURRING — NOT A ONE-TIME BUG] Sepolia WETH/quoteToken pool drifts from live oracle price
 
 - **Component**: contracts
 - **Discovered**: 2026-08-17 — while adding `test_Fork_ExecuteOrder_RealSwap`
   to `contracts/test/OrderKeeper.fork.t.sol`
-- **Resolved**: 2026-08-29 — resolved incidentally by the 2026-08-26
+- **First resolved**: 2026-08-29 — resolved incidentally by the 2026-08-26
   redeploy; confirmed by measuring both pools directly
-- **Status**: resolved
+- **Recurred**: 2026-08-30 — a *different* pool (Milestone 15's
+  2026-08-29 redeploy), already drifted again by the time it was
+  re-measured, confirming this is a standing characteristic of an
+  unarbitraged testnet pool rather than a bug that gets fixed once
+- **Status**: recurring / known limitation — see README.md's "Accepted
+  MVP slippage tolerance limitation" for the standing explanation; this
+  entry is now the incident log, not the authoritative current guidance
 
 **Original problem**: the WETH/DemoUSDC Uniswap V2 pool was seeded at
 ETH ≈ $1,900 and never arbitraged since — no bots trade this testnet
@@ -77,9 +83,37 @@ Two caveats worth keeping in mind:
   the pool against the oracle before widening tolerance: a growing gap is
   the signal, and widening would hide it.
 
+**2026-08-30 update — exactly what the second caveat predicted.**
+Milestone 15's 2026-08-29 redeploy seeded yet another new pool (new
+DemoUSDC `0x84811D4C…`, pool `0x8Bf87713…`). Measured directly the next
+day:
+
+| Pool | Reserves | Implied ETH | vs oracle (~$2,506.74) |
+|---|---|---|---|
+| Current (`0x8Bf87713…`, post-Milestone-15 DemoUSDC) | 0.9728 WETH / 2,522.36 quoteToken | $2,592.96 | **+3.44%** |
+
+Already wider than the +1.41% recorded one day after the *previous*
+redeploy, despite this pool also having just been freshly seeded at
+deploy-time oracle price — confirming drift accumulates quickly on an
+unarbitraged pool this shallow, not just over long idle periods.
+Real-swap simulation against these exact reserves (constant-product
+formula, not just the naive reserve-ratio percentage above) showed a
+small Sell clearing at 1% slippage while a modest Buy needed slippage
+above 3% and below 10%, and a Buy roughly 100x larger needed slippage in
+the 20%+ range from price impact alone — see README.md's "Accepted MVP
+slippage tolerance limitation" for the full traced mechanism and
+`contracts/test/OrderKeeper.fork.t.sol`'s current tolerance, which still
+passed at 5% for its specific (small) order sizes at measurement time.
+
+The conclusion this entry now supports: don't try to pin a single
+"correct" `maxSlippageBps` value for Sepolia testing, and don't treat a
+previously-measured low-drift snapshot as durable. Read the live pool
+before relying on any specific percentage, exactly as `RUNBOOK.md`'s
+end-to-end workflow already instructs.
+
 ---
 
-### [RESOLVED] Sepolia DAI feed is registered but intermittently stale
+## [RESOLVED] Sepolia DAI feed is registered but intermittently stale
 
 - **Component**: contracts / frontend
 - **Discovered**: 2026-08-28 — while verifying Milestone 12's (Multi-Asset

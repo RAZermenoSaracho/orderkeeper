@@ -10,8 +10,10 @@ treat that section as the source of truth if this ever drifts out of sync.
 - **Fork tests** — against Sepolia state, real Chainlink feed, real Uniswap
   router.
 - **Fuzz tests** — price/amount boundaries around the execution condition.
-- **Invariant tests** — contract balance must always equal the sum of
-  active order amounts (solvency).
+- **Invariant tests** — solvency per custodied asset: ETH balance matches
+  the sum of active Sell orders' amounts, `quoteToken` balance matches
+  the sum of active Buy orders' amounts, and the router is left with no
+  stranded allowance after execution.
 
 Commands:
 

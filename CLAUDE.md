@@ -2,6 +2,20 @@
 
 Agent orientation file for OrderKeeper. Read this before making changes.
 
+## Table of Contents
+
+- [Project Summary](#project-summary)
+- [Status](#status)
+- [Agent Files](#agent-files)
+- [Planned Structure](#planned-structure)
+- [Tech Stack](#tech-stack)
+- [Conventions](#conventions)
+- [Architectural Decision Documentation](#architectural-decision-documentation)
+- [Testing Expectations (`contracts/`)](#testing-expectations-contracts)
+- [Design Decisions](#design-decisions)
+- [Open Design Questions](#open-design-questions)
+- [Environment Variables](#environment-variables)
+
 ---
 
 ## Project Summary
@@ -57,6 +71,13 @@ order creation (with the ERC20 `approve()` step Buy needs before
 on executed orders, and cancellation — verified against a live Sepolia
 deployment, both directions (see README.md's On-Chain Activity section).
 No per-order asset selector, matching `contracts/` above.
+
+All three off-chain/frontend services are continuously deployed to a
+production Mac server (Milestone 14, ROADMAP.md) via a self-hosted
+GitHub Actions runner triggered on every push to `main` — frontend at
+`orderkeeper.razs.dev`, indexer API at `api-orderkeeper.razs.dev`. See
+`RUNBOOK.md`'s "Continuous deployment to the MacBook" workflow for the
+full pipeline, manual deploy/rollback, and failure triage.
 
 This file will be updated as each component's state changes.
 
@@ -234,8 +255,11 @@ pattern.
 - **Fork tests** — against Sepolia state, real Chainlink feed, real Uniswap
   router
 - **Fuzz tests** — price/amount boundaries around the execution condition
-- **Invariant tests** — contract balance must always equal the sum of active
-  order amounts (solvency)
+- **Invariant tests** — solvency per custodied asset, tracked separately
+  since Milestone 15's bidirectional redesign: ETH balance matches the
+  sum of active Sell orders' amounts, `quoteToken` balance matches the
+  sum of active Buy orders' amounts, and the router is left with no
+  stranded allowance after execution
 
 Run with `forge test`, fork tests with `forge test --fork-url $RPC_URL`,
 coverage with `forge coverage`.
