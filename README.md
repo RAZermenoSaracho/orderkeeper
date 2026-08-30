@@ -7,6 +7,7 @@ A decentralized limit-order keeper bot for EVM chains. Users deposit funds and d
 - [Problem Statement](#problem-statement)
 - [Why This Project](#why-this-project)
 - [Architecture](#architecture)
+- [Local Setup](#local-setup)
 - [Design Decisions](#design-decisions)
 - [Security Considerations](#security-considerations)
 - [Known Limitations & Tradeoffs](#known-limitations--tradeoffs)
@@ -79,6 +80,150 @@ Polls `order-indexer`'s REST API for pending orders (see [Design Decisions](#des
 Wallet connection, order creation/cancellation, and a wallet-scoped **My Orders** history/status view. The owner filter is a UX convenience, not privacy or authentication; Sepolia activity remains public.
 - **Stack**: React + Vite + TypeScript (pure SPA, no SSR), viem, wagmi for wallet connection
 - **Direct-to-contract writes**: order creation and cancellation are signed by the user's wallet and sent straight to the contract via wagmi/viem — the frontend talks to `order-indexer` only to read order history
+
+---
+
+## Local Setup
+
+Steps to run the full stack locally from a clean clone, in the order
+you'd normally bring components up: `contracts/` (tests only — no local
+chain needs to keep running for this MVP), then `order-indexer/`, then
+`keeper-bot/`, then `frontend/`. This covers the everyday developer path
+only — for deploying contracts, Etherscan verification, PM2/production
+setup, or a full manual end-to-end oracle-loop walkthrough against live
+Sepolia, see [RUNBOOK.md](RUNBOOK.md).
+
+### Prerequisites
+
+- [Foundry](https://getfoundry.sh/) (`forge`/`cast`) — CI is pinned to
+  `forge 1.7.1` (`.github/workflows/ci.yml`); any recent Foundry install
+  works locally.
+- Node.js `24` (see [`.nvmrc`](.nvmrc)) and npm.
+- PostgreSQL, running locally, for `order-indexer`.
+- A Sepolia RPC URL (e.g. from Alchemy or Infura) — used by `contracts/`
+  (fork tests/deploys only), `order-indexer/`, and `keeper-bot/`.
+- Sepolia ETH in a wallet you control — only needed if you intend to
+  create or execute real orders yourself; not required to run the test
+  suites or start the services.
+
+### 1. Clone the repository
+
+```shell
+git clone https://github.com/RAZermenoSaracho/orderkeeper.git
+cd orderkeeper
+```
+
+### 2. `contracts/`
+
+```shell
+cd contracts
+forge soldeer install   # installs pinned dependencies from soldeer.lock
+forge test               # unit + fuzz + invariant tests — no network needed
+```
+
+[`deployments/sepolia.json`](deployments/sepolia.json) already has a live
+deployment, so the rest of the stack below can run against it without you
+deploying your own. To deploy or verify a contract yourself, see
+RUNBOOK.md's "Deploy contracts" and "Verify contract on Etherscan"
+workflows.
+
+### 3. PostgreSQL database
+
+```shell
+createdb orderkeeper_dev
+```
+
+`order-indexer`'s own Prisma migrations create its schema (next step) —
+nothing to set up manually beyond the database existing.
+
+### 4. `order-indexer/`
+
+```shell
+cd order-indexer
+cp .env.example .env   # fill in RPC_URL and DATABASE_URL — see below
+npm ci
+npx prisma migrate deploy
+npm run prisma:generate
+npm run dev
+```
+
+Serves `http://localhost:3001` by default (`PORT` in `.env.example`).
+Confirm it's up:
+
+```shell
+curl http://localhost:3001/health   # {"status":"ok"}
+```
+
+### 5. `keeper-bot/`
+
+```shell
+cd keeper-bot
+cp .env.example .env   # fill in RPC_URL, PRIVATE_KEY, INDEXER_URL — see below
+npm ci
+npm run dev
+```
+
+`keeper-bot` has no HTTP endpoint of its own — it's a background poller;
+watch its terminal for `Watching OrderKeeper at ...` and `Polling ...
+every 15s`.
+
+### 6. `frontend/`
+
+```shell
+cd frontend
+cp .env.example .env   # fill in the VITE_ vars — see below
+npm ci
+npm run dev
+```
+
+Serves `http://localhost:5173` by default (Vite's dev-server default
+port).
+
+### Environment configuration
+
+Each component's `.env` is gitignored; copy it from that directory's
+`.env.example` and fill in real values there — never commit `.env` (see
+[`.claude/rules/security.md`](.claude/rules/security.md)). Every variable
+is documented inline in its own `.env.example`; the ones needed to get
+started locally:
+
+| File | Required for local dev |
+|---|---|
+| `contracts/.env` | `RPC_URL` — only for fork tests or deploying; plain `forge test` needs none |
+| `order-indexer/.env` | `RPC_URL`, `DATABASE_URL` (e.g. `postgresql://YOUR_USERNAME@localhost:5432/orderkeeper_dev`) |
+| `keeper-bot/.env` | `RPC_URL`, `PRIVATE_KEY` (a dedicated operator wallet — never the `contracts/` deployer key), `INDEXER_URL` (`http://localhost:3001`) |
+| `frontend/.env` | `VITE_RPC_URL`, `VITE_CONTRACT_ADDRESS`, `VITE_WETH_ADDRESS`, `VITE_QUOTE_TOKEN_ADDRESS`, `VITE_INDEXER_URL` (`http://localhost:3001`) |
+
+The contract/token addresses come from
+[`deployments/sepolia.json`](deployments/sepolia.json) — cross-check them
+against the live contract's own `quoteToken()`/`weth()` after any
+redeploy (see `CLAUDE.md`'s Environment Variables section for a real bug
+a stale value here once caused).
+
+### Running tests
+
+```shell
+cd contracts && forge test    # fork tests need RPC_URL, self-skip otherwise
+cd order-indexer && npm test
+cd keeper-bot && npm test
+cd frontend && npm test
+```
+
+See RUNBOOK.md's "Run full test suite" workflow for expected pass counts
+and coverage commands.
+
+### Once everything is running
+
+| Service | URL | Notes |
+|---|---|---|
+| `order-indexer` | `http://localhost:3001` | REST API — `/health`, `/orders` |
+| `frontend` | `http://localhost:5173` | Vite dev server |
+| `keeper-bot` | *(none)* | No HTTP endpoint; watch its terminal logs |
+
+Connect a wallet (e.g. MetaMask) to Sepolia in the frontend to create and
+manage orders. For a full walkthrough of creating and executing a real
+order end-to-end, see RUNBOOK.md's "End-to-end oracle loop verification"
+workflow.
 
 ---
 
@@ -165,6 +310,25 @@ still resolved from the Uniswap router's own `WETH()` at construction and
 immutable from then on, so the swap path can never drift from what the
 router itself requires. Decided 2026-08-17, redesigned 2026-08-29
 (Milestone 15).
+
+### Single-chain deployment: Sepolia only, not multichain
+
+Multichain deployment was considered, as the capstone brief asks
+deployment scripts to keep in mind. The MVP deliberately targets Sepolia
+only: proving the full limit-order lifecycle — on-chain custody, live
+Chainlink price re-verification, real Uniswap V2 execution, indexing, and
+keeper triggering — already required real testnet-liquidity work (see
+Known Limitations & Tradeoffs below); spreading that same validation
+across multiple chains before the core product was proven once would have
+added deployment and liquidity-seeding overhead without adding anything
+the capstone needed to demonstrate. Nothing about `OrderKeeper` is
+Sepolia-specific by construction — `contracts/script/DeployOrderKeeper.s.sol`
+and `foundry.toml`'s `[rpc_endpoints]` can target any EVM-compatible chain
+— but doing so for real would still require that chain's own Chainlink
+feed address, its own Uniswap V2 (or compatible) liquidity for the
+deployed pair, and its own verification pass; it is not a matter of
+swapping `--rpc-url`. Mainnet or L2 deployment along those lines remains
+explicit post-bootcamp work — see Milestone 19 in `ROADMAP.md`.
 
 ---
 
