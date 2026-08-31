@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as wagmi from "wagmi";
+import { sepolia } from "wagmi/chains";
 import App from "./App.tsx";
 
 vi.mock("wagmi", async (importOriginal) => {
@@ -37,6 +38,7 @@ function setConnected(overrides: Record<string, unknown> = {}) {
   mockUseAccount.mockReturnValue({
     address: "0x369A2e8133Ea0670fCC7C96ff3220c43D3ffeA7A",
     isConnected: true,
+    chainId: sepolia.id,
     ...overrides,
   } as unknown as ReturnType<typeof wagmi.useAccount>);
 }
@@ -62,12 +64,30 @@ afterEach(() => {
 });
 
 describe("App", () => {
-  test('shows "Connect Wallet" and hides order UI when disconnected', () => {
+  test('shows onboarding and "Connect Wallet" while hiding order UI when disconnected', () => {
     render(<App />);
 
     expect(screen.getByRole("button", { name: "Connect Wallet" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Automated limit orders on Sepolia" })).toBeInTheDocument();
+    expect(screen.getByText(/Sepolia ETH for gas and Sell orders/)).toBeInTheDocument();
     expect(screen.queryByTestId("create-order-form")).not.toBeInTheDocument();
     expect(screen.queryByTestId("order-list")).not.toBeInTheDocument();
+  });
+
+  test("links wallet-less visitors to the official MetaMask download page", () => {
+    mockUseConnect.mockReturnValue({
+      connect: mockConnect,
+      connectors: [],
+      isPending: false,
+    } as unknown as ReturnType<typeof wagmi.useConnect>);
+
+    render(<App />);
+
+    const link = screen.getByRole("link", { name: "Need a wallet? Get MetaMask" });
+    expect(link).toHaveAttribute("href", "https://metamask.io/download/");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(screen.getByRole("button", { name: "Connect Wallet" })).toBeDisabled();
   });
 
   test('clicking "Connect Wallet" calls connect() with the injected connector', async () => {
@@ -113,8 +133,28 @@ describe("App", () => {
 
     expect(screen.getByText(/0x369A\.\.\.eA7A/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Disconnect" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Automated limit orders on Sepolia" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Need a wallet? Get MetaMask" })).not.toBeInTheDocument();
     expect(screen.getByTestId("create-order-form")).toBeInTheDocument();
     expect(screen.getByTestId("order-list")).toBeInTheDocument();
+  });
+
+  test("warns a connected wallet on the wrong network", () => {
+    setConnected({ chainId: 1 });
+
+    render(<App />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Wrong network. Switch your wallet to Sepolia testnet before creating an order.",
+    );
+  });
+
+  test("does not show a network warning when connected to Sepolia", () => {
+    setConnected();
+
+    render(<App />);
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   test('shows "..." for the balance while it is still loading', () => {
