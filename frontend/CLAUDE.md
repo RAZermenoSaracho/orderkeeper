@@ -9,15 +9,23 @@ this file only covers conventions specific to this directory.
 
 - **`src/App.tsx`** stays at the `src/` root, alongside `main.tsx`,
   `config.ts`, and `abi.ts` — it's the application root/entry component
-  (rendered directly by `main.tsx`), not a reusable component.
+  (rendered directly by `main.tsx`), not a reusable component. `App.tsx`
+  itself renders only `<Layout />`, kept thin so `main.tsx`'s render
+  target stays stable if the top-level composition changes again.
+- **`src/layout/Layout.tsx`** owns the actual top-level UI composition
+  (header, wallet control) and the wallet-state-dependent rendering:
+  disconnected users see `Onboarding`; connected users see the order
+  creation form and order list.
 - **`src/components/`** holds actual reusable UI components only
-  (`CreateOrderForm.tsx`, `OrderList.tsx`, and any added later). Don't
-  move `App.tsx` in here, even though it's a component in the React
-  sense — the distinction is entry point vs. reusable piece, not "is it a
-  component."
+  (`CreateOrderForm.tsx`, `OrderList.tsx`, `Onboarding.tsx` — wallet/
+  Sepolia/test-funding guidance shown to disconnected users — and any
+  added later). Don't move `App.tsx` in here, even though it's a
+  component in the React sense — the distinction is entry point vs.
+  reusable piece, not "is it a component."
 
 Decided 2026-08-28, during Milestone 9 (Mobile-Responsive Layout +
-Component Reorganization) in `ROADMAP.md`.
+Component Reorganization) in `ROADMAP.md`; `src/layout/` and
+`Onboarding.tsx` added afterward as part of the wallet onboarding work.
 
 ---
 

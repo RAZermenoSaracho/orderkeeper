@@ -343,9 +343,15 @@ Expected variables, to be finalized as each service is built:
   Chainlink directly, so the off-chain trigger can never drift from what
   `executeOrder()` actually re-verifies.
 - `UNISWAP_ROUTER_ADDRESS` — Sepolia V2 router address
+- `INITIAL_LIQUIDITY_ETH` — ETH amount `contracts/script/DeployOrderKeeper.s.sol`
+  seeds as initial WETH/DemoUSDC Uniswap liquidity. Optional, defaults to
+  `1 ether`.
 - `DATABASE_URL` — `order-indexer`'s PostgreSQL connection string (Prisma).
   Local dev DB name: `orderkeeper_dev`.
 - `PORT` — `order-indexer`'s HTTP listen port. Optional, defaults to `3001`.
+- `HOST` — `order-indexer`'s bind address. Optional, defaults to
+  `127.0.0.1` (Cloudflare Tunnel/PM2 hosting binds locally by default; use
+  `0.0.0.0` only when deliberate LAN access is required).
 - `GETLOGS_BLOCK_RANGE` — `order-indexer`'s `eth_getLogs` chunk size during
   backfill, to stay under provider block-range limits (e.g. Alchemy's free
   tier caps at 10). Optional, defaults to `10`.

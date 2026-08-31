@@ -90,7 +90,7 @@ cd order-indexer && npm test   # or: cd keeper-bot / cd frontend
 
 - [ ] `order-indexer`: `25 passed` (3 test files).
 - [ ] `keeper-bot`: `18 passed` (3 test files).
-- [ ] `frontend`: `37 passed` (3 test files).
+- [ ] `frontend`: `41 passed` (5 test files).
 
 ---
 

@@ -77,7 +77,7 @@ Polls `order-indexer`'s REST API for pending orders (see [Design Decisions](#des
 - **Stack**: Node.js, TypeScript, viem — holds its own operator private key (separate from user funds) to sign and send execution transactions
 
 ### 4. `frontend/` — User interface
-Wallet connection, order creation/cancellation, and a wallet-scoped **My Orders** history/status view. The owner filter is a UX convenience, not privacy or authentication; Sepolia activity remains public.
+Wallet connection, order creation/cancellation, and a wallet-scoped **My Orders** history/status view. Disconnected users see an onboarding screen with wallet setup and Sepolia/test-token funding guidance instead of the order forms. The owner filter is a UX convenience, not privacy or authentication; Sepolia activity remains public.
 - **Stack**: React + Vite + TypeScript (pure SPA, no SSR), viem, wagmi for wallet connection
 - **Direct-to-contract writes**: order creation and cancellation are signed by the user's wallet and sent straight to the contract via wagmi/viem — the frontend talks to `order-indexer` only to read order history
 
@@ -655,4 +655,4 @@ To reproduce this yourself, or re-verify after future changes, see
 - **Unit tests** (Foundry) — order lifecycle: create, execute, cancel, unauthorized access, edge cases (zero amounts, expired orders)
 - **Fork tests** — against Sepolia state, using the real Chainlink feed and Uniswap router
 - **Fuzz tests** — price/amount boundaries around the execution condition
-- **Invariant tests** — contract balance always matches the sum of active order amounts (solvency)
+- **Invariant tests** — solvency tracked per custodied asset: ETH balance matches the sum of active Sell orders' amounts, `quoteToken` balance matches the sum of active Buy orders' amounts, and the router is left with no stranded allowance after execution

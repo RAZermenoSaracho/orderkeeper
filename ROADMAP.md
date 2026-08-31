@@ -128,7 +128,7 @@ whole stack demo-ready and verifiably trust-minimized end-to-end.
 - 100% test coverage on `contracts/` (76 passed locally, 1 fork-suite
   placeholder skipped; 81 passed with `--fork-url`) across unit, fork,
   fuzz, and invariant categories; real automated test coverage on
-  `order-indexer/` (25), `keeper-bot/` (18), and `frontend/` (37) too —
+  `order-indexer/` (25), `keeper-bot/` (18), and `frontend/` (41) too —
   see `RUNBOOK.md`'s "Run full test suite" workflow for exact current
   commands and counts per service
 - Slither-clean `src/` — every finding triaged, fixed or
@@ -397,7 +397,8 @@ Goals:
 - Resolves `.claude/rules/testing.md`'s current note that no testing
   stack has been chosen for these three services
 
-**Outcome**: 60 tests total, all passing — `order-indexer` 17
+**Outcome** (counts below are as of this milestone's completion; see
+"Current Product Capabilities" above for current totals): 60 tests total, all passing — `order-indexer` 17
 (`serializeOrder()` plus the full Fastify route layer via `.inject()`:
 400 validation, rate limiting, CORS), `keeper-bot` 17 (the poll/check/
 execute loop and race-condition handling, plus `indexerClient.ts`'s
