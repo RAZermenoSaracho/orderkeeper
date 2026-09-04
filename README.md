@@ -328,7 +328,7 @@ and `foundry.toml`'s `[rpc_endpoints]` can target any EVM-compatible chain
 feed address, its own Uniswap V2 (or compatible) liquidity for the
 deployed pair, and its own verification pass; it is not a matter of
 swapping `--rpc-url`. Mainnet or L2 deployment along those lines remains
-explicit post-bootcamp work — see Milestone 19 in `ROADMAP.md`.
+explicit post-bootcamp work — see Milestone 20 in `ROADMAP.md`.
 
 ---
 

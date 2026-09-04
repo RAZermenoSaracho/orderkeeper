@@ -44,12 +44,13 @@ source of truth if this index and that line ever disagree):
 </details>
 
 <details>
-<summary><strong>Planned (4)</strong></summary>
+<summary><strong>Planned (5)</strong></summary>
 
-- [Milestone 16 - Chainlink Automation as Alternative Trigger Source](#milestone-16---chainlink-automation-as-alternative-trigger-source)
-- [Milestone 17 - Operational Monitoring/Alerting](#milestone-17---operational-monitoringalerting)
-- [Milestone 18 - Partial Order Fills / Additional Condition Types](#milestone-18---partial-order-fills--additional-condition-types)
-- [Milestone 19 - Mainnet or L2 Deployment](#milestone-19---mainnet-or-l2-deployment)
+- [Milestone 16 - Migrate Wallet Connection to RainbowKit](#milestone-16---migrate-wallet-connection-to-rainbowkit)
+- [Milestone 17 - Chainlink Automation as Alternative Trigger Source](#milestone-17---chainlink-automation-as-alternative-trigger-source)
+- [Milestone 18 - Operational Monitoring/Alerting](#milestone-18---operational-monitoringalerting)
+- [Milestone 19 - Partial Order Fills / Additional Condition Types](#milestone-19---partial-order-fills--additional-condition-types)
+- [Milestone 20 - Mainnet or L2 Deployment](#milestone-20---mainnet-or-l2-deployment)
 
 </details>
 
@@ -156,7 +157,7 @@ specifically replaced the earlier one-way Sell flow with genuine
 two-directional trading, including a real bug found and fixed mid-
 verification (see its Outcome note).
 
-Remaining milestones (16–19, plus the future multi-token exchange work at
+Remaining milestones (16–20, plus the future multi-token exchange work at
 the end of this file) are optional post-bootcamp hardening and product
 expansion, not required for the MVP — none is currently in active
 development. The next one picked up will be chosen deliberately, not
@@ -533,7 +534,24 @@ Fixed in both files; `config.ts` now carries a comment explaining why this
 class of bug recurs on every redeploy (DemoUSDC has no canonical fixed
 address) and what to check.
 
-## Milestone 16 - Chainlink Automation as Alternative Trigger Source
+## Milestone 16 - Migrate Wallet Connection to RainbowKit
+
+Status: PLANNED
+Depends on: Milestone 4
+
+Goals:
+- Replace wagmi's injected connector (`frontend/`'s current wallet
+  connection, see Milestone 4) with RainbowKit's connect UI and connector
+  set, layered on top of the existing wagmi/viem config rather than
+  replacing it
+- Support more wallet options out of the box (WalletConnect, Coinbase
+  Wallet, etc.) instead of only browser-injected wallets
+- Preserve existing behavior: order creation, listing, and cancellation
+  must keep working unchanged against the connected account
+- Update `frontend/`'s test suite (Milestone 13) for the new connection
+  UI/mocking surface
+
+## Milestone 17 - Chainlink Automation as Alternative Trigger Source
 
 Status: PLANNED
 Depends on: Milestone 1, Milestone 3
@@ -549,7 +567,7 @@ Goals:
   implementing it doesn't require redesigning `executeOrder()`'s
   verification logic
 
-## Milestone 17 - Operational Monitoring/Alerting
+## Milestone 18 - Operational Monitoring/Alerting
 
 Status: PLANNED
 Depends on: Milestone 2, Milestone 3
@@ -562,7 +580,7 @@ Goals:
 - Optional hardening — relevant once either service runs somewhere
   long-lived, not required for the Sepolia MVP demo
 
-## Milestone 18 - Partial Order Fills / Additional Condition Types
+## Milestone 19 - Partial Order Fills / Additional Condition Types
 
 Status: PLANNED
 Depends on: Milestone 1
@@ -576,7 +594,7 @@ Goals:
   active order amounts) and its fuzz/invariant tests accordingly
 - Optional product expansion — not required for MVP
 
-## Milestone 19 - Mainnet or L2 Deployment
+## Milestone 20 - Mainnet or L2 Deployment
 
 Status: PLANNED
 Depends on: Milestone 1
